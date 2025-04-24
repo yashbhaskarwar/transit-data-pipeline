@@ -144,3 +144,78 @@ CREATE TABLE operational.calendar (
     end_date DATE NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- ML FEATURE TABLES
+
+-- Real-time delay tracking (ML training)
+CREATE TABLE operational.delay_events (
+    id SERIAL PRIMARY KEY,
+    trip_id VARCHAR(50) NOT NULL,
+    stop_id VARCHAR(50) NOT NULL,
+    scheduled_arrival INTERVAL,
+    actual_arrival TIMESTAMP,
+    delay_minutes INTEGER,
+    weather_condition VARCHAR(50),
+    day_of_week INTEGER,
+    is_holiday BOOLEAN DEFAULT FALSE,
+    recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (trip_id) REFERENCES operational.trips(trip_id),
+    FOREIGN KEY (stop_id) REFERENCES operational.stops(stop_id)
+);
+
+-- Weather data integration (ML features)
+CREATE TABLE operational.weather_data (
+    id SERIAL PRIMARY KEY,
+    recorded_at TIMESTAMP NOT NULL,
+    temperature DECIMAL(5, 2),
+    precipitation DECIMAL(5, 2),
+    wind_speed DECIMAL(5, 2),
+    visibility DECIMAL(5, 2),
+    weather_condition VARCHAR(50),
+    UNIQUE (recorded_at)
+);
+
+-- INDEXES FOR PERFORMANCE
+
+-- Staging indexes 
+CREATE INDEX idx_staging_stops_id ON staging.stops(stop_id);
+CREATE INDEX idx_staging_routes_id ON staging.routes(route_id);
+CREATE INDEX idx_staging_trips_id ON staging.trips(trip_id);
+CREATE INDEX idx_staging_stop_times_trip ON staging.stop_times(trip_id);
+
+-- Operational indexes
+CREATE INDEX idx_ops_stops_location ON operational.stops(stop_lat, stop_lon);
+CREATE INDEX idx_ops_trips_route ON operational.trips(route_id);
+CREATE INDEX idx_ops_trips_service ON operational.trips(service_id);
+CREATE INDEX idx_ops_stop_times_trip ON operational.stop_times(trip_id);
+CREATE INDEX idx_ops_stop_times_stop ON operational.stop_times(stop_id);
+CREATE INDEX idx_ops_stop_times_sequence ON operational.stop_times(trip_id, stop_sequence);
+CREATE INDEX idx_ops_calendar_dates ON operational.calendar(start_date, end_date);
+CREATE INDEX idx_ops_delay_events_trip ON operational.delay_events(trip_id);
+CREATE INDEX idx_ops_delay_events_stop ON operational.delay_events(stop_id);
+CREATE INDEX idx_ops_delay_events_time ON operational.delay_events(recorded_at);
+
+-- Convert GTFS time format 
+CREATE OR REPLACE FUNCTION staging.gtfs_time_to_interval(time_str VARCHAR)
+RETURNS INTERVAL AS $$
+DECLARE
+    parts TEXT[];
+    hours INTEGER;
+    minutes INTEGER;
+    seconds INTEGER;
+BEGIN
+    IF time_str IS NULL OR time_str = '' THEN
+        RETURN NULL;
+    END IF;
+    
+    parts := string_to_array(time_str, ':');
+    hours := parts[1]::INTEGER;
+    minutes := parts[2]::INTEGER;
+    seconds := parts[3]::INTEGER;
+    
+    RETURN make_interval(hours => hours, mins => minutes, secs => seconds);
+EXCEPTION
+    WHEN OTHERS THEN
+        RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
