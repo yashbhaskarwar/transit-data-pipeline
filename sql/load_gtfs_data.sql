@@ -83,3 +83,32 @@ DELIMITER ','
 CSV HEADER
 NULL AS '';
 
+-- DATA QUALITY CHECKS
+
+-- null coordinates in stops
+SELECT 
+    'Stops with null coordinates' AS check_type,
+    COUNT(*) AS count
+FROM staging.stops
+WHERE stop_lat IS NULL OR stop_lon IS NULL;
+
+-- trips without routes
+SELECT 
+    'Trips without matching routes' AS check_type,
+    COUNT(*) AS count
+FROM staging.trips t
+LEFT JOIN staging.routes r ON t.route_id = r.route_id
+WHERE r.route_id IS NULL;
+
+-- invalid stop_times
+SELECT 
+    'Stop times with null trip_id or stop_id' AS check_type,
+    COUNT(*) AS count
+FROM staging.stop_times
+WHERE trip_id IS NULL OR stop_id IS NULL OR arrival_time IS NULL;
+
+-- calendar size
+SELECT 
+    'Calendar entries (services)' AS check_type,
+    COUNT(*) AS count
+FROM staging.calendar;
