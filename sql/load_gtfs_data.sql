@@ -237,3 +237,40 @@ SELECT
     end_date
 FROM staging.calendar
 ON CONFLICT (service_id) DO NOTHING;
+
+-- POST-LOAD VERIFICATION
+
+-- Count records in all tables
+SELECT 
+    'STAGING LAYER' AS layer,
+    'stops' AS table_name,
+    COUNT(*) AS record_count
+FROM staging.stops
+UNION ALL
+SELECT 'STAGING LAYER', 'routes', COUNT(*) FROM staging.routes
+UNION ALL
+SELECT 'STAGING LAYER', 'trips', COUNT(*) FROM staging.trips
+UNION ALL
+SELECT 'STAGING LAYER', 'stop_times', COUNT(*) FROM staging.stop_times
+UNION ALL
+SELECT 'STAGING LAYER', 'calendar', COUNT(*) FROM staging.calendar
+UNION ALL
+SELECT 'OPERATIONAL LAYER', 'stops', COUNT(*) FROM operational.stops
+UNION ALL
+SELECT 'OPERATIONAL LAYER', 'routes', COUNT(*) FROM operational.routes
+UNION ALL
+SELECT 'OPERATIONAL LAYER', 'trips', COUNT(*) FROM operational.trips
+UNION ALL
+SELECT 'OPERATIONAL LAYER', 'stop_times', COUNT(*) FROM operational.stop_times
+UNION ALL
+SELECT 'OPERATIONAL LAYER', 'calendar', COUNT(*) FROM operational.calendar
+ORDER BY layer, table_name;
+
+-- sample data from operational layer
+SELECT stop_id, stop_name, stop_lat, stop_lon 
+FROM operational.stops 
+LIMIT 5;
+
+SELECT route_id, route_short_name, route_long_name, route_type 
+FROM operational.routes 
+LIMIT 5;
