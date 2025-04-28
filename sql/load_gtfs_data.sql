@@ -274,3 +274,17 @@ LIMIT 5;
 SELECT route_id, route_short_name, route_long_name, route_type 
 FROM operational.routes 
 LIMIT 5;
+
+
+-- ANALYZE TABLES FOR QUERY OPTIMIZATION
+
+ANALYZE staging.stops;
+ANALYZE staging.routes;
+ANALYZE staging.trips;
+ANALYZE staging.stop_times;
+ANALYZE staging.calendar;
+ANALYZE operational.stops;
+ANALYZE operational.routes;
+ANALYZE operational.trips;
+ANALYZE operational.stop_times;
+ANALYZE operational.calendar;
