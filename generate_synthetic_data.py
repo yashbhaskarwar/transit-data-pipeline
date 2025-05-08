@@ -12,8 +12,8 @@ DB_CONFIG = {
     'host': 'localhost',
     'port': 5432,
     'database': 'transit_delay_optimization',
-    'user': 'postgres',      
-    'password': 'postgres'   
+    'user': 'username', # Update postgres username
+    'password': 'password'  # Update postgres password   
 }
 
 # DATA GENERATION PARAMETERS
