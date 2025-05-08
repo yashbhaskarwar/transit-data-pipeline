@@ -1,4 +1,5 @@
 import psycopg2
+from psycopg2.extras import execute_batch
 import numpy as np
 from datetime import datetime, timedelta, time
 import random
@@ -314,3 +315,182 @@ def generate_delay_events(conn, start_date: datetime.date, end_date: datetime.da
     
     print(f"Generated {len(delay_events)} delay events")
     return delay_events
+
+# DATABASE INSERTION
+
+def insert_weather_data(conn, weather_data: List[Dict]):
+    cursor = conn.cursor()
+    
+    insert_query = """
+        INSERT INTO operational.weather_data 
+        (recorded_at, temperature, precipitation, wind_speed, visibility, weather_condition)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        ON CONFLICT (recorded_at) DO NOTHING
+    """
+    
+    data_tuples = [
+        (w['recorded_at'], w['temperature'], w['precipitation'], 
+         w['wind_speed'], w['visibility'], w['weather_condition'])
+        for w in weather_data
+    ]
+    
+    execute_batch(cursor, insert_query, data_tuples, page_size=1000)
+    conn.commit()
+    cursor.close()
+    
+    print(f"Inserted {len(weather_data)} weather records")
+
+
+def insert_delay_events(conn, delay_events: List[Dict]):
+    cursor = conn.cursor()
+    
+    insert_query = """
+        INSERT INTO operational.delay_events 
+        (trip_id, stop_id, scheduled_arrival, actual_arrival, delay_minutes, 
+         weather_condition, day_of_week, is_holiday)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+    """
+    
+    data_tuples = [
+        (d['trip_id'], d['stop_id'], d['scheduled_arrival'], d['actual_arrival'],
+         d['delay_minutes'], d['weather_condition'], d['day_of_week'], d['is_holiday'])
+        for d in delay_events
+    ]
+    
+    execute_batch(cursor, insert_query, data_tuples, page_size=1000)
+    conn.commit()
+    cursor.close()
+    
+    print(f" Inserted {len(delay_events)} delay events")
+
+# VERIFICATION & STATISTICS
+
+def print_generation_statistics(conn):
+    cursor = conn.cursor()
+    
+    print("SUMMARY")
+    print("\n")
+    
+    # Weather statistics
+    cursor.execute("""
+        SELECT 
+            COUNT(*) as total_records,
+            MIN(recorded_at) as earliest,
+            MAX(recorded_at) as latest,
+            ROUND(AVG(temperature)::numeric, 2) as avg_temp,
+            ROUND(AVG(precipitation)::numeric, 2) as avg_precip
+        FROM operational.weather_data
+    """)
+    
+    result = cursor.fetchone()
+    print(f"\nWeather Data:")
+    print(f"  Total records: {result[0]}")
+    print(f"  Date range: {result[1]} to {result[2]}")
+    print(f"  Avg temperature: {result[3]}°C")
+    print(f"  Avg precipitation: {result[4]}mm")
+    
+    # Weather condition distribution
+    cursor.execute("""
+        SELECT weather_condition, COUNT(*) as count
+        FROM operational.weather_data
+        GROUP BY weather_condition
+        ORDER BY count DESC
+    """)
+    
+    print(f"\n  Weather distribution:")
+    for row in cursor.fetchall():
+        print(f"    {row[0]}: {row[1]} records")
+    
+    # Delay statistics
+    cursor.execute("""
+        SELECT 
+            COUNT(*) as total_delays,
+            ROUND(AVG(delay_minutes)::numeric, 2) as avg_delay,
+            MIN(delay_minutes) as min_delay,
+            MAX(delay_minutes) as max_delay,
+            COUNT(DISTINCT trip_id) as affected_trips,
+            COUNT(DISTINCT stop_id) as affected_stops
+        FROM operational.delay_events
+    """)
+    
+    result = cursor.fetchone()
+    print(f"\nDelay Events:")
+    print(f"  Total delays: {result[0]}")
+    print(f"  Average delay: {result[1]} minutes")
+    print(f"  Min delay: {result[2]} minutes")
+    print(f"  Max delay: {result[3]} minutes")
+    print(f"  Affected trips: {result[4]}")
+    print(f"  Affected stops: {result[5]}")
+    
+    # Delays by day of week
+    cursor.execute("""
+        SELECT 
+            CASE day_of_week
+                WHEN 0 THEN 'Monday'
+                WHEN 1 THEN 'Tuesday'
+                WHEN 2 THEN 'Wednesday'
+                WHEN 3 THEN 'Thursday'
+                WHEN 4 THEN 'Friday'
+                WHEN 5 THEN 'Saturday'
+                WHEN 6 THEN 'Sunday'
+            END as day_name,
+            COUNT(*) as delay_count,
+            ROUND(AVG(delay_minutes)::numeric, 2) as avg_delay
+        FROM operational.delay_events
+        GROUP BY day_of_week
+        ORDER BY day_of_week
+    """)
+    
+    print(f"\n  Delays by day of week:")
+    for row in cursor.fetchall():
+        print(f"    {row[0]}: {row[1]} delays (avg {row[2]} min)")
+    
+    # Delays by weather
+    cursor.execute("""
+        SELECT 
+            weather_condition,
+            COUNT(*) as delay_count,
+            ROUND(AVG(delay_minutes)::numeric, 2) as avg_delay
+        FROM operational.delay_events
+        GROUP BY weather_condition
+        ORDER BY delay_count DESC
+    """)
+    
+    print(f"\n  Delays by weather condition:")
+    for row in cursor.fetchall():
+        print(f"    {row[0]}: {row[1]} delays (avg {row[2]} min)")
+    
+    cursor.close()
+
+# MAIN EXECUTION
+
+def main():    
+    # Connect to database
+    conn = get_db_connection()
+    
+    try:
+        print("\n Detecting date range from calendar...")
+        start_date, end_date = detect_date_range(conn)
+        
+        print("\n Generating weather data")
+        weather_data = generate_weather_data(start_date, end_date)
+        insert_weather_data(conn, weather_data)
+        
+        print("\n Generating delay events")
+        delay_events = generate_delay_events(conn, start_date, end_date, weather_data)
+        insert_delay_events(conn, delay_events)
+        
+        print("\n Generating summary statistics")
+        print_generation_statistics(conn)
+        
+    except Exception as e:
+        print(f"\n Error during generation: {e}")
+        conn.rollback()
+        raise
+    
+    finally:
+        conn.close()
+        print("\nDatabase connection closed")
+
+if __name__ == "__main__":
+    main()
