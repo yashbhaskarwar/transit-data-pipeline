@@ -76,3 +76,75 @@ CREATE TABLE warehouse.dim_weather (
     impact_category VARCHAR(50),
     description TEXT
 );
+
+-- FACT TABLE
+
+-- Delay Events
+CREATE TABLE warehouse.fact_delay_events (
+    delay_event_key SERIAL PRIMARY KEY,
+    
+    -- Dimension Foreign Keys
+    date_key INTEGER NOT NULL REFERENCES warehouse.dim_date(date_key),
+    time_key INTEGER NOT NULL REFERENCES warehouse.dim_time(time_key),
+    stop_key INTEGER NOT NULL REFERENCES warehouse.dim_stop(stop_key),
+    route_key INTEGER NOT NULL REFERENCES warehouse.dim_route(route_key),
+    trip_key INTEGER NOT NULL REFERENCES warehouse.dim_trip(trip_key),
+    weather_key INTEGER NOT NULL REFERENCES warehouse.dim_weather(weather_key),
+    
+    -- Degenerate Dimensions
+    trip_id VARCHAR(50) NOT NULL,
+    stop_id VARCHAR(50) NOT NULL,
+    stop_sequence INTEGER,
+    
+    -- Measures
+    delay_minutes INTEGER NOT NULL,
+    scheduled_arrival_seconds INTEGER,
+    actual_arrival_timestamp TIMESTAMP NOT NULL,
+    
+    -- Derived Measures
+    is_significant_delay BOOLEAN,
+    is_severe_delay BOOLEAN,
+    delay_category VARCHAR(20),
+    
+    -- Metadata
+    loaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- AGGREGATE FACT TABLES
+
+-- Daily Aggregates by Route
+CREATE TABLE warehouse.fact_daily_route_performance (
+    date_key INTEGER NOT NULL REFERENCES warehouse.dim_date(date_key),
+    route_key INTEGER NOT NULL REFERENCES warehouse.dim_route(route_key),
+    
+    -- Metrics
+    total_trips INTEGER,
+    total_delays INTEGER,
+    total_delay_minutes INTEGER,
+    avg_delay_minutes DECIMAL(10, 2),
+    max_delay_minutes INTEGER,
+    on_time_percentage DECIMAL(6, 2),  
+    
+    -- Delay Categories
+    minor_delays INTEGER,
+    moderate_delays INTEGER,
+    severe_delays INTEGER,
+    extreme_delays INTEGER,
+    
+    PRIMARY KEY (date_key, route_key)
+);
+
+-- Hourly Aggregates by Stop
+CREATE TABLE warehouse.fact_hourly_stop_performance (
+    date_key INTEGER NOT NULL REFERENCES warehouse.dim_date(date_key),
+    time_key INTEGER NOT NULL REFERENCES warehouse.dim_time(time_key),
+    stop_key INTEGER NOT NULL REFERENCES warehouse.dim_stop(stop_key),
+    
+    -- Metrics
+    total_arrivals INTEGER,
+    total_delays INTEGER,
+    avg_delay_minutes DECIMAL(10, 2),
+    delay_rate DECIMAL(5, 2),
+    
+    PRIMARY KEY (date_key, time_key, stop_key)
+);
