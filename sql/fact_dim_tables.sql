@@ -307,4 +307,37 @@ VALUES
     ('fog', 2, 'Medium Impact', 'Foggy conditions, moderate delays'),
     ('windy', 2, 'Medium Impact', 'High winds, moderate delays possible');
 
-    
+-- POPULATE AGGREGATE FACT TABLES
+
+-- Daily Route Performance
+INSERT INTO warehouse.fact_daily_route_performance
+SELECT 
+    fde.date_key,
+    fde.route_key,
+    COUNT(DISTINCT fde.trip_id) as total_trips,
+    COUNT(*) as total_delays,
+    SUM(fde.delay_minutes) as total_delay_minutes,
+    AVG(fde.delay_minutes)::DECIMAL(10,2) as avg_delay_minutes,
+    MAX(fde.delay_minutes) as max_delay_minutes,
+    LEAST(100.0, GREATEST(0.0, 
+        100.0 - (COUNT(*)::DECIMAL / GREATEST(COUNT(DISTINCT fde.trip_id), 1) * 100)
+    ))::DECIMAL(6,2) as on_time_percentage,
+    SUM(CASE WHEN fde.delay_category = 'Minor' THEN 1 ELSE 0 END) as minor_delays,
+    SUM(CASE WHEN fde.delay_category = 'Moderate' THEN 1 ELSE 0 END) as moderate_delays,
+    SUM(CASE WHEN fde.delay_category = 'Severe' THEN 1 ELSE 0 END) as severe_delays,
+    SUM(CASE WHEN fde.delay_category = 'Extreme' THEN 1 ELSE 0 END) as extreme_delays
+FROM warehouse.fact_delay_events fde
+GROUP BY fde.date_key, fde.route_key;
+
+-- Hourly Stop Performance
+INSERT INTO warehouse.fact_hourly_stop_performance
+SELECT 
+    fde.date_key,
+    fde.time_key,
+    fde.stop_key,
+    COUNT(*) as total_arrivals,
+    COUNT(*) as total_delays,
+    AVG(fde.delay_minutes)::DECIMAL(10,2) as avg_delay_minutes,
+    100.0::DECIMAL(5,2) as delay_rate
+FROM warehouse.fact_delay_events fde
+GROUP BY fde.date_key, fde.time_key, fde.stop_key;
