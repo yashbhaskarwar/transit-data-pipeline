@@ -148,3 +148,163 @@ CREATE TABLE warehouse.fact_hourly_stop_performance (
     
     PRIMARY KEY (date_key, time_key, stop_key)
 );
+
+-- POPULATE DIMENSION TABLES
+
+-- Populate dim_date
+INSERT INTO warehouse.dim_date (
+    date_key, full_date, year, quarter, month, month_name,
+    week_of_year, day_of_month, day_of_week, day_name,
+    is_weekend, is_holiday, season
+)
+SELECT 
+    TO_CHAR(d, 'YYYYMMDD')::INTEGER as date_key,
+    d as full_date,
+    EXTRACT(YEAR FROM d)::INTEGER as year,
+    EXTRACT(QUARTER FROM d)::INTEGER as quarter,
+    EXTRACT(MONTH FROM d)::INTEGER as month,
+    TO_CHAR(d, 'Month') as month_name,
+    EXTRACT(WEEK FROM d)::INTEGER as week_of_year,
+    EXTRACT(DAY FROM d)::INTEGER as day_of_month,
+    EXTRACT(DOW FROM d)::INTEGER as day_of_week,
+    TO_CHAR(d, 'Day') as day_name,
+    CASE WHEN EXTRACT(DOW FROM d) IN (0, 6) THEN TRUE ELSE FALSE END as is_weekend,
+    FALSE as is_holiday,
+    CASE 
+        WHEN EXTRACT(MONTH FROM d) IN (12, 1, 2) THEN 'Winter'
+        WHEN EXTRACT(MONTH FROM d) IN (3, 4, 5) THEN 'Spring'
+        WHEN EXTRACT(MONTH FROM d) IN (6, 7, 8) THEN 'Summer'
+        ELSE 'Fall'
+    END as season
+FROM generate_series(
+    (SELECT MIN(DATE(actual_arrival)) FROM operational.delay_events),
+    (SELECT MAX(DATE(actual_arrival)) FROM operational.delay_events),
+    '1 day'::interval
+) d;
+
+-- Update holidays based on actual data
+UPDATE warehouse.dim_date
+SET is_holiday = TRUE
+WHERE date_key IN (
+    SELECT DISTINCT TO_CHAR(DATE(actual_arrival), 'YYYYMMDD')::INTEGER
+    FROM operational.delay_events
+    WHERE is_holiday = TRUE
+);
+
+-- Populate dim_time
+INSERT INTO warehouse.dim_time (time_key, hour, minute, time_of_day, is_rush_hour, rush_hour_period)
+SELECT 
+    hour * 100 + minute as time_key,
+    hour,
+    minute,
+    CASE 
+        WHEN hour BETWEEN 5 AND 11 THEN 'Morning'
+        WHEN hour BETWEEN 12 AND 16 THEN 'Afternoon'
+        WHEN hour BETWEEN 17 AND 20 THEN 'Evening'
+        ELSE 'Night'
+    END as time_of_day,
+    CASE 
+        WHEN hour BETWEEN 7 AND 9 OR hour BETWEEN 17 AND 19 THEN TRUE
+        ELSE FALSE
+    END as is_rush_hour,
+    CASE 
+        WHEN hour BETWEEN 7 AND 9 THEN 'Morning Rush'
+        WHEN hour BETWEEN 17 AND 19 THEN 'Evening Rush'
+        ELSE 'Off Peak'
+    END as rush_hour_period
+FROM generate_series(0, 23) hour
+CROSS JOIN generate_series(0, 59) minute
+WHERE minute IN (0, 15, 30, 45);
+
+-- Populate dim_stop
+INSERT INTO warehouse.dim_stop (
+    stop_id, stop_name, stop_lat, stop_lon, platform_code,
+    location_type, stop_area, is_major_hub
+)
+SELECT 
+    s.stop_id,
+    s.stop_name,
+    s.stop_lat,
+    s.stop_lon,
+    s.platform_code, 
+    0 as location_type,  -- Default value is set to 0 as field is not present in GTFS dataset
+    -- Derive stop area based on location
+    CASE 
+        WHEN s.stop_lat > (SELECT AVG(stop_lat) FROM operational.stops) THEN 'North'
+        WHEN s.stop_lat < (SELECT AVG(stop_lat) FROM operational.stops) THEN 'South'
+        ELSE 'Central'
+    END as stop_area,
+    CASE WHEN (
+        SELECT COUNT(DISTINCT t.route_id)
+        FROM operational.trips t
+        INNER JOIN operational.stop_times st ON t.trip_id = st.trip_id
+        WHERE st.stop_id = s.stop_id
+    ) >= 5 THEN TRUE ELSE FALSE END as is_major_hub
+FROM operational.stops s;
+
+-- Populate dim_route 
+INSERT INTO warehouse.dim_route (
+    route_id, route_short_name, route_long_name, route_type, 
+    route_type_desc, route_color, route_sort_order, avg_trip_duration
+)
+SELECT 
+    r.route_id,
+    r.route_short_name,
+    r.route_long_name,
+    r.route_type,
+    CASE r.route_type
+        WHEN 0 THEN 'Tram/Light Rail'
+        WHEN 1 THEN 'Subway/Metro'
+        WHEN 2 THEN 'Rail'
+        WHEN 3 THEN 'Bus'
+        WHEN 4 THEN 'Ferry'
+        WHEN 5 THEN 'Cable Car'
+        WHEN 6 THEN 'Gondola'
+        WHEN 7 THEN 'Funicular'
+        ELSE 'Other'
+    END as route_type_desc,
+    r.route_color,
+    r.route_sort_order, 
+    (SELECT COALESCE(AVG(duration_seconds), 0)::INTEGER / 60
+     FROM (
+         SELECT 
+             st.trip_id,
+             MAX(EXTRACT(EPOCH FROM st.arrival_time)) - MIN(EXTRACT(EPOCH FROM st.arrival_time)) as duration_seconds
+         FROM operational.trips t
+         INNER JOIN operational.stop_times st ON t.trip_id = st.trip_id
+         WHERE t.route_id = r.route_id
+           AND st.arrival_time IS NOT NULL
+         GROUP BY st.trip_id
+         HAVING MAX(EXTRACT(EPOCH FROM st.arrival_time)) - MIN(EXTRACT(EPOCH FROM st.arrival_time)) > 0
+     ) trip_durations
+    ) as avg_trip_duration
+FROM operational.routes r;
+
+-- Populate dim_trip
+INSERT INTO warehouse.dim_trip (
+    trip_id, route_key, service_id, direction_id, 
+    trip_headsign, total_stops
+)
+SELECT 
+    t.trip_id,
+    dr.route_key,
+    t.service_id,
+    t.direction_id,
+    t.trip_headsign,
+    (SELECT COUNT(*) FROM operational.stop_times WHERE trip_id = t.trip_id) as total_stops
+FROM operational.trips t
+INNER JOIN warehouse.dim_route dr ON t.route_id = dr.route_id;
+
+-- Populate dim_weather
+INSERT INTO warehouse.dim_weather (weather_condition, severity_level, impact_category, description)
+VALUES
+    ('clear', 1, 'Low Impact', 'Clear skies, minimal transit impact'),
+    ('partly_cloudy', 1, 'Low Impact', 'Partly cloudy, minimal transit impact'),
+    ('cloudy', 1, 'Low Impact', 'Overcast, minimal transit impact'),
+    ('rainy', 2, 'Medium Impact', 'Rain, moderate delays expected'),
+    ('heavy_rain', 3, 'High Impact', 'Heavy rain, significant delays expected'),
+    ('snow', 3, 'High Impact', 'Snow conditions, major delays expected'),
+    ('fog', 2, 'Medium Impact', 'Foggy conditions, moderate delays'),
+    ('windy', 2, 'Medium Impact', 'High winds, moderate delays possible');
+
+    
