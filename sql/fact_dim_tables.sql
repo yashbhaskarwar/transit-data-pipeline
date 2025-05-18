@@ -307,6 +307,43 @@ VALUES
     ('fog', 2, 'Medium Impact', 'Foggy conditions, moderate delays'),
     ('windy', 2, 'Medium Impact', 'High winds, moderate delays possible');
 
+-- POPULATE FACT TABLE
+
+INSERT INTO warehouse.fact_delay_events (
+    date_key, time_key, stop_key, route_key, trip_key, weather_key,
+    trip_id, stop_id, stop_sequence,
+    delay_minutes, scheduled_arrival_seconds, actual_arrival_timestamp,
+    is_significant_delay, is_severe_delay, delay_category
+)
+SELECT 
+    TO_CHAR(DATE(de.actual_arrival), 'YYYYMMDD')::INTEGER as date_key,
+    (EXTRACT(HOUR FROM de.actual_arrival)::INTEGER * 100 + 
+     (EXTRACT(MINUTE FROM de.actual_arrival)::INTEGER / 15) * 15) as time_key,
+    ds.stop_key,
+    dr.route_key,
+    dt.trip_key,
+    dw.weather_key,
+    de.trip_id,
+    de.stop_id,
+    (SELECT stop_sequence FROM operational.stop_times 
+     WHERE trip_id = de.trip_id AND stop_id = de.stop_id LIMIT 1) as stop_sequence,
+    de.delay_minutes,
+    EXTRACT(EPOCH FROM de.scheduled_arrival)::INTEGER as scheduled_arrival_seconds,
+    de.actual_arrival,
+    CASE WHEN de.delay_minutes > 10 THEN TRUE ELSE FALSE END as is_significant_delay,
+    CASE WHEN de.delay_minutes > 30 THEN TRUE ELSE FALSE END as is_severe_delay,
+    CASE 
+        WHEN de.delay_minutes BETWEEN 1 AND 5 THEN 'Minor'
+        WHEN de.delay_minutes BETWEEN 6 AND 15 THEN 'Moderate'
+        WHEN de.delay_minutes BETWEEN 16 AND 30 THEN 'Severe'
+        ELSE 'Extreme'
+    END as delay_category
+FROM operational.delay_events de
+INNER JOIN warehouse.dim_stop ds ON de.stop_id = ds.stop_id
+INNER JOIN warehouse.dim_trip dt ON de.trip_id = dt.trip_id
+INNER JOIN warehouse.dim_route dr ON dt.route_key = dr.route_key
+INNER JOIN warehouse.dim_weather dw ON de.weather_condition = dw.weather_condition;
+
 -- POPULATE AGGREGATE FACT TABLES
 
 -- Daily Route Performance
