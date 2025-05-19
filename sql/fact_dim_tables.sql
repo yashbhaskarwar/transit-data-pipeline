@@ -378,3 +378,23 @@ SELECT
     100.0::DECIMAL(5,2) as delay_rate
 FROM warehouse.fact_delay_events fde
 GROUP BY fde.date_key, fde.time_key, fde.stop_key;
+
+-- CREATE INDEXES FOR PERFORMANCE
+
+-- Fact table indexes
+CREATE INDEX idx_fact_delay_date ON warehouse.fact_delay_events(date_key);
+CREATE INDEX idx_fact_delay_time ON warehouse.fact_delay_events(time_key);
+CREATE INDEX idx_fact_delay_stop ON warehouse.fact_delay_events(stop_key);
+CREATE INDEX idx_fact_delay_route ON warehouse.fact_delay_events(route_key);
+CREATE INDEX idx_fact_delay_trip ON warehouse.fact_delay_events(trip_key);
+CREATE INDEX idx_fact_delay_weather ON warehouse.fact_delay_events(weather_key);
+CREATE INDEX idx_fact_delay_category ON warehouse.fact_delay_events(delay_category);
+CREATE INDEX idx_fact_delay_significant ON warehouse.fact_delay_events(is_significant_delay);
+
+-- Dimension indexes
+CREATE INDEX idx_dim_date_full ON warehouse.dim_date(full_date);
+CREATE INDEX idx_dim_date_dow ON warehouse.dim_date(day_of_week);
+CREATE INDEX idx_dim_date_weekend ON warehouse.dim_date(is_weekend);
+CREATE INDEX idx_dim_time_rush ON warehouse.dim_time(is_rush_hour);
+CREATE INDEX idx_dim_stop_hub ON warehouse.dim_stop(is_major_hub);
+CREATE INDEX idx_dim_route_type ON warehouse.dim_route(route_type);
