@@ -398,3 +398,27 @@ CREATE INDEX idx_dim_date_weekend ON warehouse.dim_date(is_weekend);
 CREATE INDEX idx_dim_time_rush ON warehouse.dim_time(is_rush_hour);
 CREATE INDEX idx_dim_stop_hub ON warehouse.dim_stop(is_major_hub);
 CREATE INDEX idx_dim_route_type ON warehouse.dim_route(route_type);
+
+-- STATISTICS & VERIFICATION
+
+ANALYZE warehouse.dim_date;
+ANALYZE warehouse.dim_time;
+ANALYZE warehouse.dim_stop;
+ANALYZE warehouse.dim_route;
+ANALYZE warehouse.dim_trip;
+ANALYZE warehouse.dim_weather;
+ANALYZE warehouse.fact_delay_events;
+ANALYZE warehouse.fact_daily_route_performance;
+ANALYZE warehouse.fact_hourly_stop_performance;
+
+-- Verification queries
+
+SELECT 'Dimension Tables' as category, 'dim_date' as table_name, COUNT(*) as row_count FROM warehouse.dim_date
+UNION ALL SELECT 'Dimension Tables', 'dim_time', COUNT(*) FROM warehouse.dim_time
+UNION ALL SELECT 'Dimension Tables', 'dim_stop', COUNT(*) FROM warehouse.dim_stop
+UNION ALL SELECT 'Dimension Tables', 'dim_route', COUNT(*) FROM warehouse.dim_route
+UNION ALL SELECT 'Dimension Tables', 'dim_trip', COUNT(*) FROM warehouse.dim_trip
+UNION ALL SELECT 'Dimension Tables', 'dim_weather', COUNT(*) FROM warehouse.dim_weather
+UNION ALL SELECT 'Fact Tables', 'fact_delay_events', COUNT(*) FROM warehouse.fact_delay_events
+UNION ALL SELECT 'Fact Tables', 'fact_daily_route_performance', COUNT(*) FROM warehouse.fact_daily_route_performance
+UNION ALL SELECT 'Fact Tables', 'fact_hourly_stop_performance', COUNT(*) FROM warehouse.fact_hourly_stop_performance;
