@@ -49,3 +49,20 @@ WHERE performance_rank <= 5
 ORDER BY year DESC, week_of_year DESC, performance_rank
 LIMIT 20;
 
+-- Rush Hour vs Off-Peak Analysis
+
+SELECT 
+    dt.rush_hour_period as "Time Period",
+    COUNT(*) as "Total Delays",
+    ROUND(AVG(fde.delay_minutes)::numeric, 2) as "Avg Delay (min)",
+    ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY fde.delay_minutes)::numeric, 2) as "Median Delay",
+    ROUND(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY fde.delay_minutes)::numeric, 2) as "95th Percentile",
+    MAX(fde.delay_minutes) as "Max Delay (min)",
+    SUM(CASE WHEN fde.is_significant_delay THEN 1 ELSE 0 END) as "Significant Delays (>10min)",
+    ROUND(100.0 * SUM(CASE WHEN fde.is_significant_delay THEN 1 ELSE 0 END) / COUNT(*)::numeric, 2) as "Significant %",
+    -- Calculate delay cost (assume $0.50 per passenger per minute)
+    ROUND((AVG(fde.delay_minutes) * 50 * 0.50)::numeric, 2) as "Est. Cost per Delay ($)"
+FROM warehouse.fact_delay_events fde
+INNER JOIN warehouse.dim_time dt ON fde.time_key = dt.time_key
+GROUP BY dt.rush_hour_period
+ORDER BY AVG(fde.delay_minutes) DESC;
