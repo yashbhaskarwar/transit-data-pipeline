@@ -128,3 +128,29 @@ SELECT
 FROM stop_performance
 ORDER BY total_delay_minutes DESC
 LIMIT 15;
+
+-- QUERY 5: Day-of-Week Pattern Analysis
+
+WITH daily_patterns AS (
+    SELECT 
+        dd.day_name,
+        dd.day_of_week,
+        dd.is_weekend,
+        COUNT(*) as total_delays,
+        AVG(fde.delay_minutes) as avg_delay,
+        STDDEV(fde.delay_minutes) as stddev_delay
+    FROM warehouse.fact_delay_events fde
+    INNER JOIN warehouse.dim_date dd ON fde.date_key = dd.date_key
+    GROUP BY dd.day_name, dd.day_of_week, dd.is_weekend
+)
+SELECT 
+    day_name as "Day",
+    CASE WHEN is_weekend THEN 'Weekend' ELSE 'Weekday' END as "Type",
+    total_delays as "Total Delays",
+    ROUND(avg_delay::numeric, 2) as "Avg Delay (min)",
+    ROUND(stddev_delay::numeric, 2) as "Std Dev",
+    ROUND(LAG(avg_delay) OVER (ORDER BY day_of_week)::numeric, 2) as "Prev Day Avg",
+    ROUND((avg_delay - LAG(avg_delay) OVER (ORDER BY day_of_week))::numeric, 2) as "Change from Prev",
+    ROUND((avg_delay - AVG(avg_delay) OVER ())::numeric, 2) as "vs Week Avg"
+FROM daily_patterns
+ORDER BY day_of_week;
