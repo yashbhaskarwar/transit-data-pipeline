@@ -66,3 +66,35 @@ FROM warehouse.fact_delay_events fde
 INNER JOIN warehouse.dim_time dt ON fde.time_key = dt.time_key
 GROUP BY dt.rush_hour_period
 ORDER BY AVG(fde.delay_minutes) DESC;
+
+-- Weather Impact Analysis with Moving Average
+
+WITH daily_weather_delays AS (
+    SELECT 
+        dd.full_date,
+        dw.weather_condition,
+        dw.severity_level,
+        COUNT(*) as daily_delays,
+        AVG(fde.delay_minutes) as avg_delay
+    FROM warehouse.fact_delay_events fde
+    INNER JOIN warehouse.dim_date dd ON fde.date_key = dd.date_key
+    INNER JOIN warehouse.dim_weather dw ON fde.weather_key = dw.weather_key
+    GROUP BY dd.full_date, dw.weather_condition, dw.severity_level
+)
+SELECT 
+    full_date as "Date",
+    weather_condition as "Weather",
+    severity_level as "Severity",
+    daily_delays as "Daily Delays",
+    ROUND(avg_delay::numeric, 2) as "Avg Delay (min)",
+    ROUND(AVG(avg_delay) OVER (
+        ORDER BY full_date 
+        ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+    )::numeric, 2) as "7-Day Moving Avg",
+    ROUND(AVG(daily_delays) OVER (
+        ORDER BY full_date 
+        ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+    )::numeric, 2) as "7-Day Avg Delays"
+FROM daily_weather_delays
+ORDER BY full_date DESC
+LIMIT 30;
