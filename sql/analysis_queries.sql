@@ -98,3 +98,33 @@ SELECT
 FROM daily_weather_delays
 ORDER BY full_date DESC
 LIMIT 30;
+
+-- QUERY 4: Stop Performance with Cumulative Analysis
+
+WITH stop_performance AS (
+    SELECT 
+        ds.stop_name,
+        ds.stop_area,
+        ds.is_major_hub,
+        COUNT(*) as total_delays,
+        SUM(fde.delay_minutes) as total_delay_minutes,
+        AVG(fde.delay_minutes) as avg_delay_minutes,
+        MAX(fde.delay_minutes) as max_delay
+    FROM warehouse.fact_delay_events fde
+    INNER JOIN warehouse.dim_stop ds ON fde.stop_key = ds.stop_key
+    GROUP BY ds.stop_name, ds.stop_area, ds.is_major_hub
+)
+SELECT 
+    stop_name as "Stop Name",
+    stop_area as "Area",
+    CASE WHEN is_major_hub THEN 'Yes' ELSE 'No' END as "Major Hub?",
+    total_delays as "Total Delays",
+    ROUND(avg_delay_minutes::numeric, 2) as "Avg Delay (min)",
+    total_delay_minutes as "Total Minutes Lost",
+    ROUND(100.0 * SUM(total_delay_minutes) OVER (
+        ORDER BY total_delay_minutes DESC
+    ) / SUM(total_delay_minutes) OVER ()::numeric, 2) as "Cumulative %",
+    ROUND(PERCENT_RANK() OVER (ORDER BY total_delay_minutes DESC)::numeric * 100, 1) as "Percentile"
+FROM stop_performance
+ORDER BY total_delay_minutes DESC
+LIMIT 15;
