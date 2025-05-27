@@ -99,7 +99,7 @@ FROM daily_weather_delays
 ORDER BY full_date DESC
 LIMIT 30;
 
--- QUERY 4: Stop Performance with Cumulative Analysis
+-- Stop Performance with Cumulative Analysis
 
 WITH stop_performance AS (
     SELECT 
@@ -129,7 +129,7 @@ FROM stop_performance
 ORDER BY total_delay_minutes DESC
 LIMIT 15;
 
--- QUERY 5: Day-of-Week Pattern Analysis
+-- Day-of-Week Pattern Analysis
 
 WITH daily_patterns AS (
     SELECT 
@@ -154,3 +154,38 @@ SELECT
     ROUND((avg_delay - AVG(avg_delay) OVER ())::numeric, 2) as "vs Week Avg"
 FROM daily_patterns
 ORDER BY day_of_week;
+
+-- Time Series - Delay Trend Analysis
+
+WITH monthly_metrics AS (
+    SELECT 
+        dd.year,
+        dd.month,
+        dd.month_name,
+        COUNT(*) as total_delays,
+        AVG(fde.delay_minutes) as avg_delay,
+        SUM(fde.delay_minutes) as total_delay_minutes,
+        COUNT(DISTINCT fde.date_key) as active_days
+    FROM warehouse.fact_delay_events fde
+    INNER JOIN warehouse.dim_date dd ON fde.date_key = dd.date_key
+    GROUP BY dd.year, dd.month, dd.month_name
+)
+SELECT 
+    year as "Year",
+    month as "Month #",
+    TRIM(month_name) as "Month",
+    total_delays as "Total Delays",
+    ROUND(avg_delay::numeric, 2) as "Avg Delay (min)",
+    ROUND((total_delays::numeric / active_days), 1) as "Delays per Day",
+    -- Trend analysis
+    ROUND(LAG(avg_delay, 1) OVER (ORDER BY year, month)::numeric, 2) as "Prev Month",
+    ROUND((avg_delay - LAG(avg_delay, 1) OVER (ORDER BY year, month))::numeric, 2) as "MoM Change",
+    -- Moving average
+    ROUND(AVG(avg_delay) OVER (
+        ORDER BY year, month 
+        ROWS BETWEEN 2 PRECEDING AND CURRENT ROW
+    )::numeric, 2) as "3-Month MA",
+    -- Quartile classification
+    NTILE(4) OVER (ORDER BY avg_delay) as "Quartile (1=Best)"
+FROM monthly_metrics
+ORDER BY year, month;
