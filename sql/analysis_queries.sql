@@ -189,3 +189,52 @@ SELECT
     NTILE(4) OVER (ORDER BY avg_delay) as "Quartile (1=Best)"
 FROM monthly_metrics
 ORDER BY year, month;
+
+-- Route-Stop Delay Hotspot Matrix
+
+WITH route_stop_delays AS (
+    SELECT 
+        dr.route_short_name,
+        ds.stop_name,
+        ds.stop_area,
+        COUNT(*) as delay_count,
+        AVG(fde.delay_minutes) as avg_delay,
+        MAX(fde.delay_minutes) as max_delay,
+        SUM(CASE WHEN fde.is_severe_delay THEN 1 ELSE 0 END) as severe_count
+    FROM warehouse.fact_delay_events fde
+    INNER JOIN warehouse.dim_route dr ON fde.route_key = dr.route_key
+    INNER JOIN warehouse.dim_stop ds ON fde.stop_key = ds.stop_key
+    GROUP BY dr.route_short_name, ds.stop_name, ds.stop_area
+    HAVING COUNT(*) >= 10  
+),
+ranked_delays AS (
+    SELECT 
+        route_short_name,
+        stop_name,
+        stop_area,
+        delay_count,
+        avg_delay,
+        max_delay,
+        severe_count,
+        -- Rank within route
+        DENSE_RANK() OVER (
+            PARTITION BY route_short_name 
+            ORDER BY avg_delay DESC
+        ) as route_rank,
+        -- Overall system rank
+        DENSE_RANK() OVER (ORDER BY avg_delay DESC) as system_rank
+    FROM route_stop_delays
+)
+SELECT 
+    route_short_name as "Route",
+    stop_name as "Stop",
+    stop_area as "Area",
+    delay_count as "# Delays",
+    ROUND(avg_delay::numeric, 2) as "Avg Delay (min)",
+    max_delay as "Max Delay",
+    severe_count as "Severe Delays",
+    route_rank as "Route Rank",
+    system_rank as "System Rank"
+FROM ranked_delays
+WHERE system_rank <= 20
+ORDER BY avg_delay DESC;
