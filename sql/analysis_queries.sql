@@ -238,3 +238,46 @@ SELECT
 FROM ranked_delays
 WHERE system_rank <= 20
 ORDER BY avg_delay DESC;
+
+-- Delay Cascade Analysis
+
+WITH trip_delays AS (
+    SELECT 
+        fde.trip_id,
+        fde.stop_sequence,
+        ds.stop_name,
+        fde.delay_minutes,
+        dd.full_date,
+        dt.hour,
+        LAG(fde.delay_minutes) OVER (
+            PARTITION BY fde.trip_id 
+            ORDER BY fde.stop_sequence
+        ) as prev_stop_delay,
+        LAG(ds.stop_name) OVER (
+            PARTITION BY fde.trip_id 
+            ORDER BY fde.stop_sequence
+        ) as prev_stop_name
+    FROM warehouse.fact_delay_events fde
+    INNER JOIN warehouse.dim_stop ds ON fde.stop_key = ds.stop_key
+    INNER JOIN warehouse.dim_date dd ON fde.date_key = dd.date_key
+    INNER JOIN warehouse.dim_time dt ON fde.time_key = dt.time_key
+)
+SELECT 
+    trip_id as "Trip ID",
+    stop_sequence as "Stop #",
+    stop_name as "Current Stop",
+    delay_minutes as "Current Delay",
+    prev_stop_name as "Previous Stop",
+    prev_stop_delay as "Previous Delay",
+    ROUND((delay_minutes - COALESCE(prev_stop_delay, 0))::numeric, 2) as "Delay Increase",
+    CASE 
+        WHEN prev_stop_delay IS NULL THEN 'Initial Delay'
+        WHEN delay_minutes > prev_stop_delay * 1.2 THEN 'Cascading ↑'
+        WHEN delay_minutes < prev_stop_delay * 0.8 THEN 'Recovering ↓'
+        ELSE 'Stable →'
+    END as "Trend"
+FROM trip_delays
+WHERE prev_stop_delay IS NOT NULL
+  AND full_date >= CURRENT_DATE - INTERVAL '7 days'
+ORDER BY trip_id, stop_sequence
+LIMIT 30;
