@@ -281,3 +281,29 @@ WHERE prev_stop_delay IS NOT NULL
   AND full_date >= CURRENT_DATE - INTERVAL '7 days'
 ORDER BY trip_id, stop_sequence
 LIMIT 30;
+
+-- Weather Severity Impact with Statistical Analysis
+
+SELECT 
+    dw.weather_condition as "Weather Condition",
+    dw.severity_level as "Severity",
+    dw.impact_category as "Impact Category",
+    COUNT(*) as "# Delays",
+    ROUND(AVG(fde.delay_minutes)::numeric, 2) as "Avg Delay (min)",
+    ROUND(STDDEV(fde.delay_minutes)::numeric, 2) as "Std Dev",
+    ROUND(PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY fde.delay_minutes)::numeric, 2) as "25th Percentile",
+    ROUND(PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY fde.delay_minutes)::numeric, 2) as "Median",
+    ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY fde.delay_minutes)::numeric, 2) as "75th Percentile",
+    -- Compare to baseline 
+    ROUND((AVG(fde.delay_minutes) - (
+        SELECT AVG(delay_minutes) 
+        FROM warehouse.fact_delay_events f2
+        INNER JOIN warehouse.dim_weather w2 ON f2.weather_key = w2.weather_key
+        WHERE w2.weather_condition = 'clear'
+    ))::numeric, 2) as "vs Clear Weather",
+    -- Coefficient of variation 
+    ROUND((STDDEV(fde.delay_minutes) / NULLIF(AVG(fde.delay_minutes), 0) * 100)::numeric, 2) as "CV %"
+FROM warehouse.fact_delay_events fde
+INNER JOIN warehouse.dim_weather dw ON fde.weather_key = dw.weather_key
+GROUP BY dw.weather_condition, dw.severity_level, dw.impact_category
+ORDER BY dw.severity_level DESC, AVG(fde.delay_minutes) DESC;
