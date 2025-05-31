@@ -307,3 +307,63 @@ FROM warehouse.fact_delay_events fde
 INNER JOIN warehouse.dim_weather dw ON fde.weather_key = dw.weather_key
 GROUP BY dw.weather_condition, dw.severity_level, dw.impact_category
 ORDER BY dw.severity_level DESC, AVG(fde.delay_minutes) DESC;
+
+-- Predictive Feature Summary
+
+WITH feature_aggregates AS (
+    SELECT 
+        fde.route_key,
+        fde.stop_key,
+        dt.hour,
+        dd.day_of_week,
+        dw.severity_level as weather_severity,
+        
+        -- Historical delay features
+        AVG(fde.delay_minutes) as avg_historical_delay,
+        STDDEV(fde.delay_minutes) as stddev_historical_delay,
+        MAX(fde.delay_minutes) as max_historical_delay,
+        
+        -- Frequency features
+        COUNT(*) as delay_frequency,
+        
+        -- Recent trend 
+        AVG(CASE 
+            WHEN dd.full_date >= CURRENT_DATE - INTERVAL '7 days' 
+            THEN fde.delay_minutes 
+        END) as recent_7day_avg,
+        AVG(CASE 
+            WHEN dd.full_date < CURRENT_DATE - INTERVAL '7 days' 
+            THEN fde.delay_minutes 
+        END) as historical_avg,
+        
+        -- Categorical features
+        COUNT(CASE WHEN fde.is_significant_delay THEN 1 END)::FLOAT / COUNT(*) as significant_delay_rate
+        
+    FROM warehouse.fact_delay_events fde
+    INNER JOIN warehouse.dim_date dd ON fde.date_key = dd.date_key
+    INNER JOIN warehouse.dim_time dt ON fde.time_key = dt.time_key
+    INNER JOIN warehouse.dim_weather dw ON fde.weather_key = dw.weather_key
+    GROUP BY fde.route_key, fde.stop_key, dt.hour, dd.day_of_week, dw.severity_level
+    HAVING COUNT(*) >= 5
+)
+SELECT 
+    dr.route_short_name as "Route",
+    ds.stop_name as "Stop",
+    hour as "Hour",
+    CASE day_of_week
+        WHEN 0 THEN 'Sun' WHEN 1 THEN 'Mon' WHEN 2 THEN 'Tue'
+        WHEN 3 THEN 'Wed' WHEN 4 THEN 'Thu' WHEN 5 THEN 'Fri' WHEN 6 THEN 'Sat'
+    END as "Day",
+    weather_severity as "Weather Severity",
+    ROUND(avg_historical_delay::numeric, 2) as "Historical Avg",
+    ROUND(stddev_historical_delay::numeric, 2) as "Std Dev",
+    delay_frequency as "Frequency",
+    ROUND(recent_7day_avg::numeric, 2) as "Recent 7d Avg",
+    ROUND((recent_7day_avg - historical_avg)::numeric, 2) as "Trend",
+    ROUND((significant_delay_rate * 100)::numeric, 1) as "Severe Rate %"
+FROM feature_aggregates fa
+INNER JOIN warehouse.dim_route dr ON fa.route_key = dr.route_key
+INNER JOIN warehouse.dim_stop ds ON fa.stop_key = ds.stop_key
+ORDER BY recent_7day_avg DESC NULLS LAST
+LIMIT 25;
+
