@@ -41,6 +41,7 @@ python generate_synthetic_data.py
 
 In this phase, we build the warehouse layer for analytics and future ML work.  
 It creates a star-schema structure, fills it with data and adds a set of analytical SQL queries.
+The warehouse script sets up all dimension tables, fact tables and their relationships, then loads them with data from the operational layer.
 
 ### How to run
  
