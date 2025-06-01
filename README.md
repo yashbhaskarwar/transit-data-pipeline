@@ -36,3 +36,20 @@ pip install -r requirements.txt
 ```bash
 python generate_synthetic_data.py
 ```
+
+## Phase 3 – Data Warehouse Layer (Fact + Dimension Tables)
+
+In this phase, we build the warehouse layer for analytics and future ML work.  
+It creates a star-schema structure, fills it with data and adds a set of analytical SQL queries.
+
+### How to run
+ 
+1. Run the warehouse schema and population script:
+```bash
+psql -U postgres -d transit_delay_optimization -f sql/fact_dim_tables.sql
+```
+2. (Optional) Run all analytical queries:
+This queries are included to explore the warehouse tables and understand patterns in the data. They are helpful for analysis and model preparation but are not required for the main pipeline to run.
+```bash
+psql -U postgres -d transit_delay_optimization -f sql/analysis_queries.sql
+```
