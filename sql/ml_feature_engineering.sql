@@ -197,3 +197,65 @@ INNER JOIN operational.routes r ON t.route_id = r.route_id
 LEFT JOIN operational.stop_times st ON de.trip_id = st.trip_id AND de.stop_id = st.stop_id
 LEFT JOIN warehouse.dim_stop s ON de.stop_id = s.stop_id;
 
+-- PRE-COMPUTE HISTORICAL AGGREGATIONS
+-- 7-day route-stop averages
+CREATE TEMP TABLE hist_route_stop_7d AS
+SELECT 
+    de.trip_id,
+    de.stop_id,
+    AVG(de.delay_minutes) as avg_delay,
+    COUNT(*) as delay_count,
+    MAX(de.delay_minutes) as max_delay
+FROM operational.delay_events de
+WHERE de.actual_arrival >= CURRENT_DATE - INTERVAL '7 days'
+GROUP BY de.trip_id, de.stop_id;
+
+CREATE INDEX idx_hist_rs7d ON hist_route_stop_7d(trip_id, stop_id);
+
+-- 30-day route-stop averages
+CREATE TEMP TABLE hist_route_stop_30d AS
+SELECT 
+    de.trip_id,
+    de.stop_id,
+    AVG(de.delay_minutes) as avg_delay
+FROM operational.delay_events de
+WHERE de.actual_arrival >= CURRENT_DATE - INTERVAL '30 days'
+GROUP BY de.trip_id, de.stop_id;
+
+CREATE INDEX idx_hist_rs30d ON hist_route_stop_30d(trip_id, stop_id);
+
+-- 7-day route averages
+CREATE TEMP TABLE hist_route_7d AS
+SELECT 
+    t.route_id,
+    AVG(de.delay_minutes) as avg_delay,
+    STDDEV(de.delay_minutes) as stddev_delay
+FROM operational.delay_events de
+INNER JOIN operational.trips t ON de.trip_id = t.trip_id
+WHERE de.actual_arrival >= CURRENT_DATE - INTERVAL '7 days'
+GROUP BY t.route_id;
+
+CREATE INDEX idx_hist_r7d ON hist_route_7d(route_id);
+
+-- 30-day route averages
+CREATE TEMP TABLE hist_route_30d AS
+SELECT 
+    t.route_id,
+    AVG(de.delay_minutes) as avg_delay
+FROM operational.delay_events de
+INNER JOIN operational.trips t ON de.trip_id = t.trip_id
+WHERE de.actual_arrival >= CURRENT_DATE - INTERVAL '30 days'
+GROUP BY t.route_id;
+
+CREATE INDEX idx_hist_r30d ON hist_route_30d(route_id);
+
+-- 7-day stop averages
+CREATE TEMP TABLE hist_stop_7d AS
+SELECT 
+    stop_id,
+    AVG(delay_minutes) as avg_delay
+FROM operational.delay_events
+WHERE actual_arrival >= CURRENT_DATE - INTERVAL '7 days'
+GROUP BY stop_id;
+
+CREATE INDEX idx_hist_s7d ON hist_stop_7d(stop_id);
