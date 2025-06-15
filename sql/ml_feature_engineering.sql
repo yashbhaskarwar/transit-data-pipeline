@@ -259,3 +259,74 @@ WHERE actual_arrival >= CURRENT_DATE - INTERVAL '7 days'
 GROUP BY stop_id;
 
 CREATE INDEX idx_hist_s7d ON hist_stop_7d(stop_id);
+
+-- 30-day stop averages
+CREATE TEMP TABLE hist_stop_30d AS
+SELECT 
+    stop_id,
+    AVG(delay_minutes) as avg_delay
+FROM operational.delay_events
+WHERE actual_arrival >= CURRENT_DATE - INTERVAL '30 days'
+GROUP BY stop_id;
+
+CREATE INDEX idx_hist_s30d ON hist_stop_30d(stop_id);
+
+-- Hour-of-day averages (7-day)
+CREATE TEMP TABLE hist_hour_7d AS
+SELECT 
+    EXTRACT(HOUR FROM actual_arrival)::INTEGER as hour,
+    AVG(delay_minutes) as avg_delay
+FROM operational.delay_events
+WHERE actual_arrival >= CURRENT_DATE - INTERVAL '7 days'
+GROUP BY EXTRACT(HOUR FROM actual_arrival)::INTEGER;
+
+CREATE INDEX idx_hist_h7d ON hist_hour_7d(hour);
+
+-- Hour-of-day averages (30-day)
+CREATE TEMP TABLE hist_hour_30d AS
+SELECT 
+    EXTRACT(HOUR FROM actual_arrival)::INTEGER as hour,
+    AVG(delay_minutes) as avg_delay
+FROM operational.delay_events
+WHERE actual_arrival >= CURRENT_DATE - INTERVAL '30 days'
+GROUP BY EXTRACT(HOUR FROM actual_arrival)::INTEGER;
+
+CREATE INDEX idx_hist_h30d ON hist_hour_30d(hour);
+
+-- Day-of-week averages (7-day)
+CREATE TEMP TABLE hist_dow_7d AS
+SELECT 
+    day_of_week,
+    AVG(delay_minutes) as avg_delay
+FROM operational.delay_events
+WHERE actual_arrival >= CURRENT_DATE - INTERVAL '7 days'
+GROUP BY day_of_week;
+
+CREATE INDEX idx_hist_dow7d ON hist_dow_7d(day_of_week);
+
+-- Weather averages (7-day)
+CREATE TEMP TABLE hist_weather_7d AS
+SELECT 
+    weather_condition,
+    AVG(delay_minutes) as avg_delay
+FROM operational.delay_events
+WHERE actual_arrival >= CURRENT_DATE - INTERVAL '7 days'
+GROUP BY weather_condition;
+
+CREATE INDEX idx_hist_w7d ON hist_weather_7d(weather_condition);
+
+-- Previous stop delays
+CREATE TEMP TABLE prev_stop_delays AS
+SELECT 
+    de.trip_id,
+    st.stop_sequence,
+    de.delay_minutes,
+    AVG(de.delay_minutes) OVER (
+        PARTITION BY de.trip_id 
+        ORDER BY st.stop_sequence 
+        ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING
+    ) as prev_delay
+FROM operational.delay_events de
+INNER JOIN operational.stop_times st ON de.trip_id = st.trip_id AND de.stop_id = st.stop_id;
+
+CREATE INDEX idx_prev_stop ON prev_stop_delays(trip_id, stop_sequence);
