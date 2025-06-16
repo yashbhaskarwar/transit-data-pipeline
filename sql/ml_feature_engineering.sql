@@ -372,3 +372,35 @@ SET avg_delay_stop_30d = COALESCE(h.avg_delay, 0)
 FROM hist_stop_30d h
 WHERE df.stop_id = h.stop_id;
 
+-- Update hour features
+UPDATE ml.delay_features df
+SET avg_delay_same_hour_7d = COALESCE(h.avg_delay, 0)
+FROM hist_hour_7d h
+WHERE df.hour_of_day = h.hour;
+
+UPDATE ml.delay_features df
+SET avg_delay_same_hour_30d = COALESCE(h.avg_delay, 0)
+FROM hist_hour_30d h
+WHERE df.hour_of_day = h.hour;
+
+-- Update day-of-week features
+UPDATE ml.delay_features df
+SET avg_delay_same_dow_7d = COALESCE(h.avg_delay, 0)
+FROM hist_dow_7d h
+WHERE df.day_of_week = h.day_of_week;
+
+-- Update weather features
+UPDATE ml.delay_features df
+SET avg_delay_same_weather_7d = COALESCE(h.avg_delay, 0)
+FROM hist_weather_7d h
+WHERE df.weather_condition = h.weather_condition;
+
+-- Update previous stop delays
+UPDATE ml.delay_features df
+SET prev_stop_delay = COALESCE(p.prev_delay::INTEGER, 0)
+FROM prev_stop_delays p
+WHERE df.trip_id = p.trip_id AND df.stop_sequence = p.stop_sequence;
+
+-- Compute volatility (using stddev from route)
+UPDATE ml.delay_features
+SET delay_volatility_7d = stddev_delay_route_7d;
