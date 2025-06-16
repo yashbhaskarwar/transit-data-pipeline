@@ -330,3 +330,45 @@ FROM operational.delay_events de
 INNER JOIN operational.stop_times st ON de.trip_id = st.trip_id AND de.stop_id = st.stop_id;
 
 CREATE INDEX idx_prev_stop ON prev_stop_delays(trip_id, stop_sequence);
+
+-- UPDATE WITH HISTORICAL FEATURES
+-- Update 7-day route-stop features
+UPDATE ml.delay_features df
+SET 
+    avg_delay_same_route_stop_7d = COALESCE(h.avg_delay, 0),
+    delay_count_same_route_stop_7d = COALESCE(h.delay_count, 0),
+    max_delay_same_route_stop_7d = COALESCE(h.max_delay, 0)
+FROM hist_route_stop_7d h
+WHERE df.trip_id = h.trip_id AND df.stop_id = h.stop_id;
+
+-- Update 30-day route-stop features
+UPDATE ml.delay_features df
+SET avg_delay_same_route_stop_30d = COALESCE(h.avg_delay, 0)
+FROM hist_route_stop_30d h
+WHERE df.trip_id = h.trip_id AND df.stop_id = h.stop_id;
+
+-- Update 7-day route features
+UPDATE ml.delay_features df
+SET 
+    avg_delay_route_7d = COALESCE(h.avg_delay, 0),
+    stddev_delay_route_7d = COALESCE(h.stddev_delay, 0)
+FROM hist_route_7d h
+WHERE df.route_id = h.route_id;
+
+-- Update 30-day route features
+UPDATE ml.delay_features df
+SET avg_delay_route_30d = COALESCE(h.avg_delay, 0)
+FROM hist_route_30d h
+WHERE df.route_id = h.route_id;
+
+-- Update stop features
+UPDATE ml.delay_features df
+SET avg_delay_stop_7d = COALESCE(h.avg_delay, 0)
+FROM hist_stop_7d h
+WHERE df.stop_id = h.stop_id;
+
+UPDATE ml.delay_features df
+SET avg_delay_stop_30d = COALESCE(h.avg_delay, 0)
+FROM hist_stop_30d h
+WHERE df.stop_id = h.stop_id;
+
