@@ -404,3 +404,65 @@ WHERE df.trip_id = p.trip_id AND df.stop_sequence = p.stop_sequence;
 -- Compute volatility (using stddev from route)
 UPDATE ml.delay_features
 SET delay_volatility_7d = stddev_delay_route_7d;
+
+-- INDEXES & VIEWS
+CREATE INDEX idx_ml_features_trip ON ml.delay_features(trip_id);
+CREATE INDEX idx_ml_features_stop ON ml.delay_features(stop_id);
+CREATE INDEX idx_ml_features_route ON ml.delay_features(route_id);
+CREATE INDEX idx_ml_features_date ON ml.delay_features(date);
+CREATE INDEX idx_ml_features_delay ON ml.delay_features(delay_minutes);
+CREATE INDEX idx_ml_features_category ON ml.delay_features(delay_category);
+
+-- Training set (80%)
+CREATE VIEW ml.train_features AS
+WITH numbered_rows AS (
+    SELECT 
+        *,
+        ROW_NUMBER() OVER (ORDER BY date, feature_id) as rn,
+        COUNT(*) OVER () as total_rows
+    FROM ml.delay_features
+)
+SELECT 
+    feature_id, trip_id, stop_id, route_id, delay_minutes, delay_category,
+    date, day_of_week, day_of_month, hour_of_day, minute_of_hour,
+    week_of_year, is_weekend, is_holiday, is_rush_hour, month, season,
+    route_type, route_total_stops, stop_sequence, stops_remaining,
+    temperature, precipitation, wind_speed, weather_condition, weather_severity,
+    avg_delay_same_route_stop_7d, delay_count_same_route_stop_7d,
+    max_delay_same_route_stop_7d, avg_delay_route_7d, stddev_delay_route_7d,
+    avg_delay_stop_7d, avg_delay_same_hour_7d, avg_delay_same_dow_7d,
+    avg_delay_same_weather_7d, avg_delay_same_route_stop_30d,
+    avg_delay_route_30d, avg_delay_stop_30d, avg_delay_same_hour_30d,
+    delay_trend_7d, delay_volatility_7d, prev_stop_delay,
+    prev_stop_avg_delay_7d, is_major_hub, stop_area,
+    rush_hour_delay_multiplier, weather_rush_hour_interaction,
+    weekend_weather_interaction, created_at
+FROM numbered_rows
+WHERE rn <= (total_rows * 0.8);
+
+-- Test set (20%)
+CREATE VIEW ml.test_features AS
+WITH numbered_rows AS (
+    SELECT 
+        *,
+        ROW_NUMBER() OVER (ORDER BY date, feature_id) as rn,
+        COUNT(*) OVER () as total_rows
+    FROM ml.delay_features
+)
+SELECT 
+    feature_id, trip_id, stop_id, route_id, delay_minutes, delay_category,
+    date, day_of_week, day_of_month, hour_of_day, minute_of_hour,
+    week_of_year, is_weekend, is_holiday, is_rush_hour, month, season,
+    route_type, route_total_stops, stop_sequence, stops_remaining,
+    temperature, precipitation, wind_speed, weather_condition, weather_severity,
+    avg_delay_same_route_stop_7d, delay_count_same_route_stop_7d,
+    max_delay_same_route_stop_7d, avg_delay_route_7d, stddev_delay_route_7d,
+    avg_delay_stop_7d, avg_delay_same_hour_7d, avg_delay_same_dow_7d,
+    avg_delay_same_weather_7d, avg_delay_same_route_stop_30d,
+    avg_delay_route_30d, avg_delay_stop_30d, avg_delay_same_hour_30d,
+    delay_trend_7d, delay_volatility_7d, prev_stop_delay,
+    prev_stop_avg_delay_7d, is_major_hub, stop_area,
+    rush_hour_delay_multiplier, weather_rush_hour_interaction,
+    weekend_weather_interaction, created_at
+FROM numbered_rows
+WHERE rn > (total_rows * 0.8);
