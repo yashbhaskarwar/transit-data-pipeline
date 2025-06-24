@@ -2,6 +2,7 @@ import psycopg2
 import pandas as pd
 import xgboost as xgb
 from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.model_selection import GridSearchCV
 
 # CONFIGURATION
 DB_CONFIG = {
@@ -256,3 +257,87 @@ def preprocess_features(df_train, df_test=None):
         return X_train, X_test, y_train, y_test, encoders, scaler
     else:
         return X_train, y_train, encoders, scaler
+
+# MODEL TRAINING
+def train_xgboost_model(X_train, y_train):
+    print("\nTraining XGBoost model...")
+    
+    if MODEL_TYPE == 'regression':
+        # XGBoost Regressor
+        print("  Model type: Regression")
+        
+        # Initial model for quick validation
+        base_model = xgb.XGBRegressor(
+            objective='reg:squarederror',
+            n_estimators=200,
+            max_depth=6,
+            learning_rate=0.1,
+            random_state=MODEL_CONFIG['random_state'],
+            n_jobs=-1
+        )
+        
+        # Hyperparameter grid (reduced for speed)
+        param_grid = {
+            'max_depth': [6, 8],
+            'learning_rate': [0.1],
+            'n_estimators': [200],
+            'min_child_weight': [1, 3],
+            'subsample': [0.8],
+            'colsample_bytree': [0.8]
+        }
+        
+        print("  Running hyperparameter tuning...")
+        
+        grid_search = GridSearchCV(
+            base_model,
+            param_grid,
+            cv=3,
+            scoring='neg_mean_squared_error',
+            n_jobs=-1,
+            verbose=1
+        )
+        
+        grid_search.fit(X_train, y_train)
+        
+        best_model = grid_search.best_estimator_
+        
+        print(f"  Model trained")
+        print(f"  Best parameters: {grid_search.best_params_}")
+        print(f"  CV Score (MSE): {-grid_search.best_score_:.2f}")
+        
+    else:
+        # XGBoost Classifier
+        print("  Model type: Classification (predicting delay category)")
+        
+        base_model = xgb.XGBClassifier(
+            objective='multi:softmax',
+            n_estimators=200,
+            max_depth=6,
+            learning_rate=0.1,
+            random_state=MODEL_CONFIG['random_state'],
+            n_jobs=-1
+        )
+        
+        param_grid = {
+            'max_depth': [4, 6, 8],
+            'learning_rate': [0.05, 0.1, 0.15],
+            'n_estimators': [150, 200, 250]
+        }
+        
+        grid_search = GridSearchCV(
+            base_model,
+            param_grid,
+            cv=3,
+            scoring='accuracy',
+            n_jobs=-1,
+            verbose=1
+        )
+        
+        grid_search.fit(X_train, y_train)
+        best_model = grid_search.best_estimator_
+        
+        print(f"  Model trained")
+        print(f"  Best parameters: {grid_search.best_params_}")
+        print(f"  CV Accuracy: {grid_search.best_score_:.4f}")
+    
+    return best_model
