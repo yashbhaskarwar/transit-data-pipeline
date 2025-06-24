@@ -1,8 +1,14 @@
 import psycopg2
 import pandas as pd
+import numpy as np
 import xgboost as xgb
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.model_selection import GridSearchCV
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score, f1_score,
+    classification_report, mean_squared_error,
+    mean_absolute_error, r2_score
+)
 
 # CONFIGURATION
 DB_CONFIG = {
@@ -341,3 +347,64 @@ def train_xgboost_model(X_train, y_train):
         print(f"  CV Accuracy: {grid_search.best_score_:.4f}")
     
     return best_model
+
+# MODEL EVALUATION
+def evaluate_model(model, X_test, y_test):
+    print("\nEvaluating model...")
+    
+    y_pred = model.predict(X_test)
+    
+    metrics = {}
+    
+    if MODEL_TYPE == 'regression':
+        # Regression metrics
+        mse = mean_squared_error(y_test, y_pred)
+        rmse = np.sqrt(mse)
+        mae = mean_absolute_error(y_test, y_pred)
+        r2 = r2_score(y_test, y_pred)
+        
+        # Calculate accuracy within tolerance
+        tolerance_5min = np.mean(np.abs(y_test - y_pred) <= 5)
+        tolerance_10min = np.mean(np.abs(y_test - y_pred) <= 10)
+        
+        metrics = {
+            'model_type': 'regression',
+            'rmse': float(rmse),
+            'mae': float(mae),
+            'r2_score': float(r2),
+            'accuracy_within_5min': float(tolerance_5min),
+            'accuracy_within_10min': float(tolerance_10min)
+        }
+        
+        print(f"  Regression Metrics:")
+        print(f"  RMSE: {rmse:.2f} minutes")
+        print(f"  MAE: {mae:.2f} minutes")
+        print(f"  R² Score: {r2:.4f}")
+        print(f"  Accuracy within 5 min: {tolerance_5min*100:.2f}%")
+        print(f"  Accuracy within 10 min: {tolerance_10min*100:.2f}%")
+        
+    else:
+        # Classification metrics
+        accuracy = accuracy_score(y_test, y_pred)
+        precision = precision_score(y_test, y_pred, average='weighted')
+        recall = recall_score(y_test, y_pred, average='weighted')
+        f1 = f1_score(y_test, y_pred, average='weighted')
+        
+        metrics = {
+            'model_type': 'classification',
+            'accuracy': float(accuracy),
+            'precision': float(precision),
+            'recall': float(recall),
+            'f1_score': float(f1)
+        }
+        
+        print(f"  Classification Metrics:")
+        print(f"  Accuracy: {accuracy*100:.2f}%")
+        print(f"  Precision: {precision:.4f}")
+        print(f"  Recall: {recall:.4f}")
+        print(f"  F1 Score: {f1:.4f}")
+        
+        print("\nClassification Report:")
+        print(classification_report(y_test, y_pred))
+    
+    return metrics, y_pred
