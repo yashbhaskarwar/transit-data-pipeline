@@ -408,3 +408,19 @@ def evaluate_model(model, X_test, y_test):
         print(classification_report(y_test, y_pred))
     
     return metrics, y_pred
+
+# FEATURE IMPORTANCE
+def analyze_feature_importance(model, feature_names):
+    print("\nAnalyzing feature importance...")
+    
+    importance_scores = model.feature_importances_
+    
+    feature_importance = pd.DataFrame({
+        'feature': feature_names,
+        'importance': importance_scores
+    }).sort_values('importance', ascending=False)
+    
+    print("\nTop 10 Most Important Features:")
+    print(feature_importance.head(10).to_string(index=False))
+    
+    return feature_importance
