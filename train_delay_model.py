@@ -9,6 +9,11 @@ from sklearn.metrics import (
     classification_report, mean_squared_error,
     mean_absolute_error, r2_score
 )
+import pickle
+import json
+from datetime import datetime
+import warnings
+warnings.filterwarnings('ignore')
 
 # CONFIGURATION
 DB_CONFIG = {
@@ -424,3 +429,37 @@ def analyze_feature_importance(model, feature_names):
     print(feature_importance.head(10).to_string(index=False))
     
     return feature_importance
+
+# MODEL PERSISTENCE
+
+def save_model_artifacts(model, scaler, encoders, metrics, feature_importance):
+    print("\nSaving model artifacts...")
+    
+    import os
+    os.makedirs('models', exist_ok=True)
+    
+    # Save model
+    with open(MODEL_CONFIG['model_path'], 'wb') as f:
+        pickle.dump(model, f)
+    print(f"Model saved to {MODEL_CONFIG['model_path']}")
+    
+    # Save scaler
+    with open(MODEL_CONFIG['scaler_path'], 'wb') as f:
+        pickle.dump(scaler, f)
+    print(f"Scaler saved to {MODEL_CONFIG['scaler_path']}")
+    
+    # Save encoders
+    with open(MODEL_CONFIG['encoders_path'], 'wb') as f:
+        pickle.dump(encoders, f)
+    print(f"Encoders saved to {MODEL_CONFIG['encoders_path']}")
+    
+    # Save metrics
+    metrics['training_date'] = datetime.now().isoformat()
+    with open(MODEL_CONFIG['metrics_path'], 'w') as f:
+        json.dump(metrics, f, indent=2)
+    print(f"Metrics saved to {MODEL_CONFIG['metrics_path']}")
+    
+    # Save feature importance
+    feature_importance.to_csv(MODEL_CONFIG['feature_importance_path'], index=False)
+    print(f"Feature importance saved to {MODEL_CONFIG['feature_importance_path']}")
+
