@@ -463,3 +463,45 @@ def save_model_artifacts(model, scaler, encoders, metrics, feature_importance):
     feature_importance.to_csv(MODEL_CONFIG['feature_importance_path'], index=False)
     print(f"Feature importance saved to {MODEL_CONFIG['feature_importance_path']}")
 
+
+# MAIN EXECUTION
+def main():
+    # Connect to database
+    conn = get_db_connection()
+    
+    try:
+        # Load data
+        df_train = load_training_data(conn)
+        df_test = load_test_data(conn)
+        
+        # Preprocess
+        X_train, X_test, y_train, y_test, encoders, scaler = preprocess_features(df_train, df_test)
+        
+        # Train model
+        model = train_xgboost_model(X_train, y_train)
+        
+        # Evaluate model
+        metrics, y_pred = evaluate_model(model, X_test, y_test)
+        
+        # Feature importance
+        feature_importance = analyze_feature_importance(model, X_train.columns.tolist())
+        
+        # Save artifacts
+        save_model_artifacts(model, scaler, encoders, metrics, feature_importance)
+        
+        if MODEL_TYPE == 'regression':
+            if metrics['accuracy_within_10min'] >= 0.85:
+                print(f"SUCCESS: Model achieves {metrics['accuracy_within_10min']*100:.2f}%")
+            else:
+                print(f"Model accuracy: {metrics['accuracy_within_10min']*100:.2f}%")
+        
+    except Exception as e:
+        print(f"\nError during training: {e}")
+        raise
+    
+    finally:
+        conn.close()
+
+if __name__ == "__main__":
+    main()
+
