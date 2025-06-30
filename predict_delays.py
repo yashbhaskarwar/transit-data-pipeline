@@ -1,7 +1,7 @@
 import pickle
+import psycopg2
 
 # CONFIGURATION
-
 DB_CONFIG = {
     'host': 'localhost',
     'port': 5432,
@@ -17,7 +17,6 @@ MODEL_CONFIG = {
 }
 
 # MODEL LOADING
-
 def load_model_artifacts():
     print("Loading model artifacts...")
     
@@ -38,3 +37,12 @@ def load_model_artifacts():
         print("Model files not found.")
         raise
 
+# DATABASE CONNECTION
+
+def get_db_connection():
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        return conn
+    except Exception as e:
+        print(f"Database connection failed: {e}")
+        raise
