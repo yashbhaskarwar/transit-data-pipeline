@@ -179,3 +179,181 @@ def predict_test_set(conn, model, scaler, encoders):
     print(f"\nFull results saved to outputs/test_predictions.csv")
     
     return results
+
+# PREDICTION ON FUTURE DATA
+
+def predict_future_delays(conn, model, scaler, encoders, target_date=None):
+    print("\nMODE: Future Prediction")
+    
+    if target_date is None:
+        # Predict for tomorrow
+        target_date = (datetime.now() + timedelta(days=1)).date()
+    
+    print(f"Predicting delays for: {target_date}")
+    
+    # Query future trip data
+    # This requires future weather forecasts and trip schedules, so we'll use recent data with modified dates to predict future delays
+    
+    query = f"""
+        WITH future_trips AS (
+            SELECT DISTINCT
+                t.trip_id,
+                t.route_id,
+                st.stop_id,
+                st.stop_sequence,
+                st.arrival_time
+            FROM operational.trips t
+            INNER JOIN operational.stop_times st ON t.trip_id = st.trip_id
+            INNER JOIN operational.calendar c ON t.service_id = c.service_id
+            WHERE c.{target_date.strftime('%A').lower()} = TRUE
+              AND c.start_date <= '{target_date}'
+              AND c.end_date >= '{target_date}'
+            LIMIT 100  
+        )
+        SELECT 
+            ft.trip_id,
+            ft.stop_id,
+            ft.route_id,
+            
+            -- Temporal features (for target date)
+            EXTRACT(HOUR FROM ft.arrival_time)::INTEGER as hour_of_day,
+            EXTRACT(DOW FROM DATE '{target_date}')::INTEGER as day_of_week,
+            EXTRACT(DAY FROM DATE '{target_date}')::INTEGER as day_of_month,
+            EXTRACT(MONTH FROM DATE '{target_date}')::INTEGER as month,
+            EXTRACT(WEEK FROM DATE '{target_date}')::INTEGER as week_of_year,
+            CASE WHEN EXTRACT(DOW FROM DATE '{target_date}') IN (0, 6) THEN 1 ELSE 0 END as is_weekend,
+            0 as is_holiday,
+            CASE WHEN EXTRACT(HOUR FROM ft.arrival_time) BETWEEN 7 AND 9 
+                   OR EXTRACT(HOUR FROM ft.arrival_time) BETWEEN 17 AND 19 
+                 THEN 1 ELSE 0 END as is_rush_hour,
+            CASE 
+                WHEN EXTRACT(MONTH FROM DATE '{target_date}') IN (12, 1, 2) THEN 'Winter'
+                WHEN EXTRACT(MONTH FROM DATE '{target_date}') IN (3, 4, 5) THEN 'Spring'
+                WHEN EXTRACT(MONTH FROM DATE '{target_date}') IN (6, 7, 8) THEN 'Summer'
+                ELSE 'Fall'
+            END as season,
+            
+            -- Route features
+            dr.route_type,
+            dtri.total_stops as route_total_stops,
+            ft.stop_sequence,
+            dtri.total_stops - ft.stop_sequence as stops_remaining,
+            
+            -- Stop features
+            ds.is_major_hub::INTEGER as is_major_hub,
+            ds.stop_area,
+            
+            -- Weather features (using recent average or forecast)
+            'clear' as weather_condition,  -- Would use forecast API
+            1 as weather_severity,
+            15.0 as temperature,
+            0.0 as precipitation,
+            5.0 as wind_speed,
+            -- 8.0 as visibility,
+            
+            -- Historical features (from last 7-30 days)
+            COALESCE((
+                SELECT AVG(delay_minutes)
+                FROM ml.delay_features
+                WHERE route_id = ft.route_id
+                  AND stop_id = ft.stop_id
+                  -- AND actual_arrival_timestamp >= CURRENT_DATE - INTERVAL '7 days'
+            ), 0) as avg_delay_same_route_stop_7d,
+            
+            COALESCE((
+                SELECT AVG(delay_minutes)
+                FROM ml.delay_features
+                WHERE route_id = ft.route_id
+                  AND stop_id = ft.stop_id
+                  -- AND actual_arrival_timestamp >= CURRENT_DATE - INTERVAL '30 days'
+            ), 0) as avg_delay_same_route_stop_30d,
+            
+            COALESCE((
+                SELECT COUNT(*)
+                FROM ml.delay_features
+                WHERE route_id = ft.route_id
+                  AND stop_id = ft.stop_id
+                  -- AND actual_arrival_timestamp >= CURRENT_DATE - INTERVAL '7 days'
+            ), 0) as delay_count_same_route_stop_7d,
+            
+            COALESCE((
+                SELECT MAX(delay_minutes)
+                FROM ml.delay_features
+                WHERE route_id = ft.route_id
+                  AND stop_id = ft.stop_id
+                  -- AND actual_arrival_timestamp >= CURRENT_DATE - INTERVAL '7 days'
+            ), 0) as max_delay_same_route_stop_7d,
+            
+            -- Other historical features 
+            0.0 as avg_delay_route_7d,
+            0.0 as avg_delay_route_30d,
+            0.0 as stddev_delay_route_7d,
+            0.0 as avg_delay_stop_7d,
+            0.0 as avg_delay_stop_30d,
+            0.0 as avg_delay_same_hour_7d,
+            0.0 as avg_delay_same_hour_30d,
+            0.0 as avg_delay_same_dow_7d,
+            0.0 as avg_delay_same_weather_7d,
+            0.0 as delay_trend_7d,
+            0.0 as delay_volatility_7d,
+            0 as prev_stop_delay,
+            0.0 as prev_stop_avg_delay_7d,
+            
+            -- Interaction features
+            CASE WHEN EXTRACT(HOUR FROM ft.arrival_time) BETWEEN 7 AND 9 
+                   OR EXTRACT(HOUR FROM ft.arrival_time) BETWEEN 17 AND 19 
+                 THEN 1.5 ELSE 1.0 END as rush_hour_delay_multiplier,
+            1.0 as weather_rush_hour_interaction,
+            1.0 as weekend_weather_interaction
+            
+        FROM future_trips ft
+        INNER JOIN warehouse.dim_stop ds ON ft.stop_id = ds.stop_id
+        INNER JOIN warehouse.dim_route dr ON ft.route_id = dr.route_id
+        INNER JOIN warehouse.dim_trip dtri ON ft.trip_id = dtri.trip_id
+    """
+    
+    print("Loading future trip data...")
+    df = pd.read_sql(query, conn)
+    print(f" Loaded {len(df):,} future trips")
+    
+    # Separate identifiers
+    identifiers = df[['trip_id', 'stop_id', 'route_id']]
+    
+    # Prepare features
+    X = df.drop(['trip_id', 'stop_id', 'route_id'], axis=1)
+    
+    # Generate predictions
+    print("Generating predictions...")
+    predicted_delays = model.predict(X)
+    predicted_delays = np.round(predicted_delays).astype(int)
+    
+    # Create results
+    results = identifiers.copy()
+    results['predicted_delay'] = predicted_delays
+    results['prediction_date'] = target_date
+    results['risk_level'] = pd.cut(
+        predicted_delays,
+        bins=[-np.inf, 5, 10, 20, np.inf],
+        labels=['Low', 'Medium', 'High', 'Severe']
+    )
+    
+    # Display summary
+    print("PREDICTION SUMMARY")
+    print(f"Total trips: {len(results):,}")
+    print(f"Avg predicted delay: {predicted_delays.mean():.2f} minutes")
+    print(f"Max predicted delay: {predicted_delays.max()} minutes")
+    print("\nRisk Distribution:")
+    print(results['risk_level'].value_counts().to_string())
+    
+    # Display high-risk trips
+    print("HIGH-RISK TRIPS (Predicted delay > 15 minutes)")
+    high_risk = results[results['predicted_delay'] > 15].sort_values('predicted_delay', ascending=False)
+    print(tabulate(high_risk.head(20), headers='keys', tablefmt='grid', showindex=False))
+    
+    # Save results
+    import os
+    os.makedirs('outputs', exist_ok=True)
+    results.to_csv(f'outputs/future_predictions_{target_date}.csv', index=False)
+    print(f"\n Full results saved to outputs/future_predictions_{target_date}.csv")
+    
+    return results
