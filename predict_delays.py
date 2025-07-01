@@ -3,6 +3,7 @@ import psycopg2
 import pandas as pd
 import numpy as np
 from tabulate import tabulate
+from datetime import datetime, timedelta
 
 # CONFIGURATION
 DB_CONFIG = {
