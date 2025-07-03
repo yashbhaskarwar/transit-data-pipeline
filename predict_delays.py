@@ -4,6 +4,9 @@ import pandas as pd
 import numpy as np
 from tabulate import tabulate
 from datetime import datetime, timedelta
+import argparse
+import warnings
+warnings.filterwarnings('ignore')
 
 # CONFIGURATION
 DB_CONFIG = {
@@ -135,6 +138,9 @@ def predict_test_set(conn, model, scaler, encoders):
     
     # Prepare features
     X = df.drop(['trip_id', 'stop_id', 'route_id', 'actual_delay'], axis=1)
+
+    # Preprocess
+    X = preprocess_features(X, scaler, encoders)
     
     # Generate predictions
     print("Generating predictions...")
@@ -322,6 +328,9 @@ def predict_future_delays(conn, model, scaler, encoders, target_date=None):
     
     # Prepare features
     X = df.drop(['trip_id', 'stop_id', 'route_id'], axis=1)
+
+    # Preprocess
+    X = preprocess_features(X, scaler, encoders)
     
     # Generate predictions
     print("Generating predictions...")
@@ -358,3 +367,67 @@ def predict_future_delays(conn, model, scaler, encoders, target_date=None):
     print(f"\n Full results saved to outputs/future_predictions_{target_date}.csv")
     
     return results
+
+# FEATURE PREPROCESSING
+def preprocess_features(X, scaler, encoders):
+    
+    # Identify categorical and numerical columns
+    categorical_cols = ['season', 'stop_area', 'weather_condition']
+    boolean_cols = [col for col in X.columns if X[col].dtype == 'bool']
+    numerical_cols = [col for col in X.columns if col not in categorical_cols and col not in boolean_cols]
+    
+    # Convert boolean to int
+    for col in boolean_cols:
+        X[col] = X[col].astype(int)
+    
+    # Encode categorical features
+    for col in categorical_cols:
+        if col in encoders:
+            le = encoders[col]
+            X[col] = X[col].astype(str).apply(
+                lambda x: le.transform([x])[0] if x in le.classes_ else -1
+            )
+    
+    # Scale numerical features
+    X[numerical_cols] = scaler.transform(X[numerical_cols])
+    
+    return X
+
+# MAIN EXECUTION
+def main():
+    parser = argparse.ArgumentParser(description='Generate delay predictions')
+    parser.add_argument('--mode', type=str, default='test', 
+                       choices=['test', 'future'],
+                       help='Prediction mode: test (evaluate) or future (predict)')
+    parser.add_argument('--date', type=str, default=None,
+                       help='Target date for future predictions (YYYY-MM-DD)')
+    
+    args = parser.parse_args()
+    
+    print("TRANSIT DELAY PREDICTION")
+    
+    # Load model
+    model, scaler, encoders = load_model_artifacts()
+    
+    # Connect to database
+    conn = get_db_connection()
+    
+    try:
+        if args.mode == 'test':
+            results = predict_test_set(conn, model, scaler, encoders)
+        else:
+            target_date = datetime.strptime(args.date, '%Y-%m-%d').date() if args.date else None
+            results = predict_future_delays(conn, model, scaler, encoders, target_date)
+        
+        print("PREDICTION COMPLETE!")
+        
+    except Exception as e:
+        print(f"\nError during prediction: {e}")
+        raise
+    
+    finally:
+        conn.close()
+
+
+if __name__ == "__main__":
+    main()
