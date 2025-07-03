@@ -54,3 +54,27 @@ This queries are included to explore the warehouse tables and understand pattern
 ```bash
 psql -U postgres -d transit_delay_optimization -f sql/analysis_queries.sql
 ```
+
+## Phase 4 - feature preprocessing and main execution
+
+This phase builds the full ML pipeline for predicting transit delays. It creates engineered features in SQL, trains an XGBoost model and provides a script to make predictions on test data or future trips.
+
+### How to run
+
+1. Generate ML features
+```bash
+psql -U postgres -d transit_delay_optimization -f sql/06_ml_feature_engineering.sql
+```
+2. Train the model
+```bash
+python train_delay_model.py
+```
+3. Run predictions
+Test mode:
+```bash
+python predict_delays.py --mode test
+```
+Future mode:
+```bash
+python predict_delays.py --mode future
+```
