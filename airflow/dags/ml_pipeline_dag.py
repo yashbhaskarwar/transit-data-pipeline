@@ -8,7 +8,7 @@ default_args = {
     'owner': 'transit_team',
     'depends_on_past': False,
     'start_date': datetime(2025, 1, 1),
-    'email': ['alerts@transit.com'],  # UPDATE THIS
+    'email': ['EMAIL'],  # UPDATE THIS
     'email_on_failure': True,
     'email_on_retry': False,
     'retries': 2,
@@ -82,8 +82,7 @@ def check_data_quality(**context):
     
     return True
 
-# TASK 2: UPDATE ML FEATURES
-
+# UPDATE ML FEATURES
 def update_ml_features(**context):
     hook = PostgresHook(postgres_conn_id='transit_db')
     conn = hook.get_conn()
@@ -283,7 +282,7 @@ def update_ml_features(**context):
     
     return True
 
-# TASK 4: GENERATE PREDICTIONS
+# GENERATE PREDICTIONS
 
 def generate_predictions(**context):
     """Generate predictions by calling the working predict_delays.py script"""
@@ -313,6 +312,128 @@ def generate_predictions(**context):
         print("Prediction script failed")
         print(result.stderr)
         raise Exception(f"Prediction failed: {result.stderr}")
+    
+# MONITORING & ALERTS
+
+def monitor_predictions(**context):
+    hook = PostgresHook(postgres_conn_id='transit_db')
+    conn = hook.get_conn()
+    cursor = conn.cursor()
+    
+    # Check if predictions table exists
+    cursor.execute("""
+        SELECT EXISTS (
+            SELECT FROM information_schema.tables 
+            WHERE table_schema = 'ml' 
+            AND table_name = 'daily_predictions'
+        )
+    """)
+    table_exists = cursor.fetchone()[0]
+    
+    if not table_exists:
+        print("No predictions table yet")
+        cursor.close()
+        conn.close()
+        return True
+    
+    # Check if there are any predictions
+    cursor.execute("SELECT COUNT(*) FROM ml.daily_predictions")
+    pred_count = cursor.fetchone()[0]
+    
+    if pred_count == 0:
+        print("No predictions to monitor yet")
+        cursor.close()
+        conn.close()
+        return True
+    
+    # Monitor predictions
+    cursor.execute("""
+        SELECT 
+            COUNT(*) as total_predictions,
+            AVG(ABS(p.predicted_delay - f.delay_minutes)) as mae,
+            COUNT(*) FILTER (WHERE ABS(p.predicted_delay - f.delay_minutes) <= 10) * 100.0 / COUNT(*) as accuracy_10min
+        FROM ml.daily_predictions p
+        INNER JOIN ml.delay_features f ON 
+            p.trip_id = f.trip_id 
+            AND p.stop_id = f.stop_id
+            AND f.date = p.prediction_date
+        WHERE p.created_at >= CURRENT_DATE - INTERVAL '7 days'
+    """)
+    
+    result = cursor.fetchone()
+    
+    if result and result[0] > 0:
+        total, mae, accuracy = result
+        print(f"\nPrediction Performance (Last 7 days):")
+        print(f"  Total predictions validated: {total}")
+        print(f"  MAE: {mae:.2f} minutes")
+        print(f"  Accuracy (10min): {accuracy:.2f}%")
+        
+        # Alert if accuracy drops
+        if accuracy < 75:
+            print("WARNING: Model accuracy below 75%!")
+            context['task_instance'].xcom_push(key='alert_needed', value=True)
+    else:
+        print("No predictions matched with actual delays yet")
+    
+    cursor.close()
+    conn.close()
+    return True
+
+def send_high_risk_alert(**context):
+    ti = context['task_instance']
+    high_risk_count = ti.xcom_pull(task_ids='generate_predictions', key='high_risk_count')
+    
+    if not high_risk_count:
+        print("No high-risk count from predictions (check if predictions ran)")
+        return True
+    
+    print(f"Found {high_risk_count} high-risk predictions from generate_predictions task")
+    
+    if high_risk_count > 10:
+        print(f"HIGH-RISK ALERT: {high_risk_count} trips with >20min predicted delay")
+        print("  This exceeds the threshold of 10 trips")
+        print("  In production, this would trigger alerts to operations team")
+        
+        # Try to get details if table exists
+        hook = PostgresHook(postgres_conn_id='transit_db')
+        conn = hook.get_conn()
+        cursor = conn.cursor()
+        
+        # Check if table exists
+        cursor.execute("""
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables 
+                WHERE table_schema = 'ml' 
+                AND table_name = 'daily_predictions'
+            )
+        """)
+        table_exists = cursor.fetchone()[0]
+        
+        if table_exists:
+            cursor.execute("""
+                SELECT route_id, COUNT(*) as trip_count, AVG(predicted_delay) as avg_delay
+                FROM ml.daily_predictions
+                WHERE prediction_date = CURRENT_DATE + INTERVAL '1 day'
+                  AND predicted_delay > 20
+                GROUP BY route_id
+                ORDER BY trip_count DESC
+                LIMIT 10
+            """)
+            
+            routes = cursor.fetchall()
+            if routes:
+                print("\nTop Affected Routes:")
+                print(f"{'Route':<10} {'Trips':<10} {'Avg Delay':<15}")
+                for route_id, count, avg_delay in routes:
+                    print(f"{route_id:<10} {count:<10} {avg_delay:.1f} min")
+        
+        cursor.close()
+        conn.close()
+    else:
+        print(f"{high_risk_count} high-risk trips (below alert threshold of 10)")
+    
+    return True
 
 # DAILY PIPELINE TASKS
 
@@ -330,12 +451,26 @@ task_update_features = PythonOperator(
     dag=dag_daily,
 )
 
-# Task: Generate predictions
+# Generate predictions
 task_predict = PythonOperator(
     task_id='generate_predictions',
     python_callable=generate_predictions,
     dag=dag_daily,
 )
 
+# Monitor performance
+task_monitor = PythonOperator(
+    task_id='monitor_predictions',
+    python_callable=monitor_predictions,
+    dag=dag_daily,
+)
+
+# Send alerts
+task_alert = PythonOperator(
+    task_id='send_high_risk_alert',
+    python_callable=send_high_risk_alert,
+    dag=dag_daily,
+)
+
 # Daily pipeline dependencies
-task_quality_check >> task_update_features >> task_predict
+task_quality_check >> task_update_features >> task_predict >> task_monitor >> task_alert
