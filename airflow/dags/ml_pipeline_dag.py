@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from airflow.operators.python import PythonOperator
+from airflow.providers.postgres.operators.postgres import PostgresOperator
 
 # DAG DEFAULT ARGUMENTS
 default_args = {
@@ -472,5 +473,38 @@ task_alert = PythonOperator(
     dag=dag_daily,
 )
 
+# Cleanup old predictions
+task_cleanup = PostgresOperator(
+    task_id='cleanup_old_predictions',
+    postgres_conn_id='transit_db',
+    sql="""
+        -- Create predictions table if it doesn't exist
+        CREATE TABLE IF NOT EXISTS ml.daily_predictions (
+            prediction_id SERIAL PRIMARY KEY,
+            trip_id VARCHAR(50),
+            stop_id VARCHAR(50),
+            route_id VARCHAR(50),
+            predicted_delay INTEGER,
+            prediction_date DATE,
+            risk_level VARCHAR(20),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        
+        -- Clean up old predictions (won't fail if table is empty)
+        DELETE FROM ml.daily_predictions
+        WHERE created_at < CURRENT_DATE - INTERVAL '30 days';
+        
+        -- Log the result
+        DO $$
+        DECLARE
+            deleted_count INTEGER;
+        BEGIN
+            GET DIAGNOSTICS deleted_count = ROW_COUNT;
+            RAISE NOTICE 'Cleaned up % old predictions', deleted_count;
+        END $$;
+    """,
+    dag=dag_daily,
+)
+
 # Daily pipeline dependencies
-task_quality_check >> task_update_features >> task_predict >> task_monitor >> task_alert
+task_quality_check >> task_update_features >> task_predict >> task_monitor >> task_alert >> task_cleanup
