@@ -14,7 +14,7 @@ default_args = {
     'email': ['EMAIL'],  # UPDATE THIS
     'email_on_failure': True,
     'email_on_retry': False,
-    'retries': 2,
+    'retries': 1,
     'retry_delay': timedelta(minutes=5),
 }
 
@@ -606,3 +606,8 @@ task_train = PythonOperator(
     python_callable=train_model,
     dag=dag_weekly,
 )
+
+# MONITORING:
+# Daily pipeline runs at 2 AM
+# Weekly retraining runs at 3 AM on Sundays
+# Alerts sent for >10 high-risk trips
