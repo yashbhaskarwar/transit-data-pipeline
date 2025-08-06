@@ -3,6 +3,8 @@ from airflow import DAG
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from airflow.operators.python import PythonOperator
 from airflow.providers.postgres.operators.postgres import PostgresOperator
+import pickle
+import numpy as np
 
 # DAG DEFAULT ARGUMENTS
 default_args = {
@@ -26,6 +28,16 @@ dag_daily = DAG(
     schedule_interval='0 2 * * *',  # 2 AM daily
     catchup=False,
     tags=['transit', 'ml', 'daily', 'prediction']
+)
+
+# Weekly model retraining
+dag_weekly = DAG(
+    'transit_delay_model_retraining',
+    default_args=default_args,
+    description='Weekly model retraining pipeline',
+    schedule_interval='0 3 * * 0',  # 3 AM every Sunday
+    catchup=False,
+    tags=['transit', 'ml', 'weekly', 'training']
 )
 
 # DATA QUALITY CHECKS
@@ -508,3 +520,89 @@ task_cleanup = PostgresOperator(
 
 # Daily pipeline dependencies
 task_quality_check >> task_update_features >> task_predict >> task_monitor >> task_alert >> task_cleanup
+
+# Training
+
+# TRAIN MODEL (Weekly)
+def train_model(**context):
+    import xgboost as xgb
+    from sklearn.model_selection import train_test_split
+    from sklearn.preprocessing import LabelEncoder, StandardScaler
+    from sklearn.metrics import mean_absolute_error, mean_squared_error
+    
+    # Load data
+    hook = PostgresHook(postgres_conn_id='transit_db')
+    query = """
+        SELECT * FROM ml.train_features
+        WHERE actual_arrival_timestamp >= CURRENT_DATE - INTERVAL '60 days'
+        ORDER BY RANDOM()
+        LIMIT 50000
+    """
+    df = hook.get_pandas_df(query)
+    
+    print(f"Loaded {len(df)} training records")
+    
+    # Prepare features (simplified preprocessing)
+    y = df['delay_minutes'].values
+    X = df.drop(['feature_id', 'trip_id', 'stop_id', 'route_id', 
+                  'delay_minutes', 'delay_category', 'actual_arrival_timestamp',
+                  'created_at'], axis=1, errors='ignore')
+    
+    # Basic preprocessing
+    for col in X.select_dtypes(include=['object']).columns:
+        le = LabelEncoder()
+        X[col] = le.fit_transform(X[col].astype(str))
+    
+    X = X.fillna(0)
+    
+    # Train/validation split
+    X_train, X_val, y_train, y_val = train_test_split(
+        X, y, test_size=0.2, random_state=42
+    )
+    
+    # Train model
+    model = xgb.XGBRegressor(
+        n_estimators=200,
+        max_depth=6,
+        learning_rate=0.1,
+        random_state=42,
+        n_jobs=-1
+    )
+    
+    model.fit(X_train, y_train)
+    
+    # Evaluate
+    y_pred = model.predict(X_val)
+    mae = mean_absolute_error(y_val, y_pred)
+    rmse = np.sqrt(mean_squared_error(y_val, y_pred))
+    accuracy_10min = np.mean(np.abs(y_val - y_pred) <= 10) * 100
+    
+    print(f"\nModel Performance:")
+    print(f"  MAE: {mae:.2f} minutes")
+    print(f"  RMSE: {rmse:.2f} minutes")
+    print(f"  Accuracy (10min): {accuracy_10min:.2f}%")
+    
+    # Save model
+    import os
+    os.makedirs('/opt/airflow/models', exist_ok=True)
+    
+    model_path = '/opt/airflow/models/xgboost_delay_model.pkl'
+    with open(model_path, 'wb') as f:
+        pickle.dump(model, f)
+    
+    print(f"Model saved to {model_path}")
+    
+    # Push metrics to XCom
+    context['task_instance'].xcom_push(key='model_mae', value=mae)
+    context['task_instance'].xcom_push(key='model_accuracy', value=accuracy_10min)
+    
+    return {'mae': mae, 'rmse': rmse, 'accuracy': accuracy_10min}
+
+# WEEKLY RETRAINING TASKS
+
+# Task: Train model
+task_train = PythonOperator(
+    task_id='train_model',
+    python_callable=train_model,
+    dag=dag_weekly,
+)
