@@ -90,3 +90,22 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- VACUUM & ANALYZE 
+
+-- VACUUM: Reclaim storage and improve performance
+VACUUM ANALYZE operational.delay_events;
+VACUUM ANALYZE operational.trips;
+VACUUM ANALYZE operational.stop_times;
+VACUUM ANALYZE warehouse.fact_delay_events;
+VACUUM ANALYZE ml.delay_features;
+
+-- ANALYZE: Update statistics for query optimizer
+ANALYZE operational.delay_events;
+ANALYZE operational.trips;
+ANALYZE operational.routes;
+ANALYZE warehouse.fact_delay_events;
+ANALYZE warehouse.dim_route;
+ANALYZE warehouse.dim_stop;
+ANALYZE ml.delay_features;
+
+
