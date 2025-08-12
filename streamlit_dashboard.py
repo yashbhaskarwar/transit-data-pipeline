@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import psycopg2
 from datetime import datetime, timedelta
+import plotly.graph_objects as go
 
 # PAGE CONFIGURATION
 st.set_page_config(
@@ -73,6 +74,106 @@ try:
 except Exception as e:
     st.sidebar.error(f"Could not load routes: {e}")
     selected_route = 'All'
+
+# KEY METRICS
+
+st.header("Key Performance Metrics")
+col1, col2, col3, col4 = st.columns(4)
+try:
+    total_delays_query = f"""
+        SELECT COUNT(*) as total
+        FROM operational.delay_events
+        WHERE DATE(actual_arrival) BETWEEN '{start_date}' AND '{end_date}'
+    """
+    total_delays = run_query(total_delays_query)['total'].iloc[0]
+    
+    # Average delay
+    avg_delay_query = f"""
+        SELECT AVG(delay_minutes) as avg_delay
+        FROM operational.delay_events
+        WHERE DATE(actual_arrival) BETWEEN '{start_date}' AND '{end_date}'
+    """
+    avg_result = run_query(avg_delay_query)
+    avg_delay = avg_result['avg_delay'].iloc[0] if avg_result['avg_delay'].iloc[0] is not None else 0
+    
+    # Model accuracy 
+    model_accuracy = 88.80  # test accuracy
+    
+    # High-risk delays
+    high_risk_query = f"""
+        SELECT COUNT(*) as high_risk
+        FROM operational.delay_events
+        WHERE DATE(actual_arrival) BETWEEN '{start_date}' AND '{end_date}'
+          AND delay_minutes > 20
+    """
+    high_risk = run_query(high_risk_query)['high_risk'].iloc[0]
+    
+    with col1:
+        st.metric("Total Delays (7d)", f"{total_delays:,}")
+    
+    with col2:
+        st.metric("Avg Delay", f"{avg_delay:.1f} min")
+    
+    with col3:
+        st.metric("Model Accuracy", f"{model_accuracy:.1f}%", delta="3.13%")
+    
+    with col4:
+        st.metric("High-Risk (>20min)", f"{high_risk:,}")
+
+except Exception as e:
+    st.error(f"Error loading metrics: {e}")
+
+# DELAY TRENDS
+
+st.header("Delay Trends Over Time")
+try:
+    # Use selected date range
+    trend_query = f"""
+        SELECT 
+            DATE(actual_arrival) as date,
+            COUNT(*) as delay_count,
+            AVG(delay_minutes) as avg_delay,
+            MAX(delay_minutes) as max_delay
+        FROM operational.delay_events
+        WHERE DATE(actual_arrival) BETWEEN '{start_date}' AND '{end_date}'
+        GROUP BY DATE(actual_arrival)
+        ORDER BY date
+    """
+    df_trend = run_query(trend_query)
+    
+    if not df_trend.empty:
+        fig = go.Figure()
+        
+        fig.add_trace(go.Scatter(
+            x=df_trend['date'],
+            y=df_trend['avg_delay'],
+            mode='lines+markers',
+            name='Avg Delay',
+            line=dict(color='#1f77b4', width=2)
+        ))
+        
+        fig.add_trace(go.Scatter(
+            x=df_trend['date'],
+            y=df_trend['max_delay'],
+            mode='lines',
+            name='Max Delay',
+            line=dict(color='#ff7f0e', width=1, dash='dash')
+        ))
+        
+        fig.update_layout(
+            title="Daily Delay Patterns (Last 30 Days)",
+            xaxis_title="Date",
+            yaxis_title="Delay (minutes)",
+            hovermode='x unified',
+            height=400
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No trend data available")
+
+except Exception as e:
+    st.error(f"Error loading trends: {e}")
 
 # FOOTER
 st.markdown("**Transit Delay Prediction System**")
