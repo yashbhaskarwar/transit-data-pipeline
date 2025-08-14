@@ -3,6 +3,7 @@ import pandas as pd
 import psycopg2
 from datetime import datetime, timedelta
 import plotly.graph_objects as go
+import plotly.express as px
 
 # PAGE CONFIGURATION
 st.set_page_config(
@@ -177,3 +178,88 @@ except Exception as e:
 
 # FOOTER
 st.markdown("**Transit Delay Prediction System**")
+
+# ROUTE PERFORMANCE
+col_left, col_right = st.columns(2)
+
+with col_left:
+    st.subheader("Top 10 Routes by Delays")
+    
+    try:
+        route_query = f"""
+            SELECT 
+                t.route_id,
+                COUNT(*) as delay_count,
+                AVG(de.delay_minutes) as avg_delay,
+                MAX(de.delay_minutes) as max_delay
+            FROM operational.delay_events de
+            INNER JOIN operational.trips t ON de.trip_id = t.trip_id
+            WHERE DATE(de.actual_arrival) BETWEEN '{start_date}' AND '{end_date}'
+            GROUP BY t.route_id
+            ORDER BY delay_count DESC
+            LIMIT 10
+        """
+        df_routes = run_query(route_query)
+        
+        if not df_routes.empty:
+            fig = px.bar(
+                df_routes,
+                x='route_id',
+                y='delay_count',
+                title='Delays by Route (Last 7 Days)',
+                labels={'delay_count': 'Number of Delays', 'route_id': 'Route'},
+                color='avg_delay',
+                color_continuous_scale='Reds'
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Show data table
+            st.dataframe(
+                df_routes.style.format({
+                    'avg_delay': '{:.1f}',
+                    'max_delay': '{:.0f}'
+                }),
+                use_container_width=True
+            )
+        else:
+            st.info("No route data available")
+    
+    except Exception as e:
+        st.error(f"Error loading route data: {e}")
+
+with col_right:
+    st.subheader("Hourly Delay Patterns")
+    
+    try:
+        hourly_query = f"""
+            SELECT 
+                EXTRACT(HOUR FROM actual_arrival)::INTEGER as hour,
+                COUNT(*) as delay_count,
+                AVG(delay_minutes) as avg_delay
+            FROM operational.delay_events
+            WHERE DATE(actual_arrival) BETWEEN '{start_date}' AND '{end_date}'
+            GROUP BY EXTRACT(HOUR FROM actual_arrival)::INTEGER
+            ORDER BY hour
+        """
+        df_hourly = run_query(hourly_query)
+        
+        if not df_hourly.empty:
+            fig = px.line(
+                df_hourly,
+                x='hour',
+                y='avg_delay',
+                markers=True,
+                title='Average Delay by Hour of Day',
+                labels={'hour': 'Hour of Day', 'avg_delay': 'Avg Delay (min)'}
+            )
+            
+            # Highlight rush hours
+            fig.add_vrect(x0=7, x1=9, fillcolor="red", opacity=0.1, annotation_text="AM Rush")
+            fig.add_vrect(x0=17, x1=19, fillcolor="red", opacity=0.1, annotation_text="PM Rush")
+            
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No hourly data available")
+    
+    except Exception as e:
+        st.error(f"Error loading hourly data: {e}")
