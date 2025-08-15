@@ -263,3 +263,49 @@ with col_right:
     
     except Exception as e:
         st.error(f"Error loading hourly data: {e}")
+
+# WEATHER IMPACT
+st.header("Weather Impact Analysis")
+
+try:
+    weather_query = f"""
+        SELECT 
+            weather_condition,
+            COUNT(*) as delay_count,
+            AVG(delay_minutes) as avg_delay,
+            MAX(delay_minutes) as max_delay
+        FROM operational.delay_events
+        WHERE DATE(actual_arrival) BETWEEN '{start_date}' AND '{end_date}'
+        GROUP BY weather_condition
+        ORDER BY avg_delay DESC
+    """
+    df_weather = run_query(weather_query)
+    
+    if not df_weather.empty:
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            fig = px.bar(
+                df_weather,
+                x='weather_condition',
+                y='avg_delay',
+                title='Average Delay by Weather',
+                labels={'weather_condition': 'Weather', 'avg_delay': 'Avg Delay (min)'},
+                color='avg_delay',
+                color_continuous_scale='Blues'
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        
+        with col2:
+            fig = px.pie(
+                df_weather,
+                values='delay_count',
+                names='weather_condition',
+                title='Delay Distribution by Weather'
+            )
+            st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No weather data available")
+
+except Exception as e:
+    st.error(f"Error loading weather data: {e}")
