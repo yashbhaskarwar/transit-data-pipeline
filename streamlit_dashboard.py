@@ -309,3 +309,48 @@ try:
 
 except Exception as e:
     st.error(f"Error loading weather data: {e}")
+
+# ML MODEL PERFORMANCE
+st.header("ML Model Performance")
+
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    st.metric("Training Accuracy", "85.67%")
+    st.caption("Accuracy within ±10 minutes")
+
+with col2:
+    st.metric("Test Accuracy", "88.80%")
+    st.caption("On 177K test records")
+
+with col3:
+    st.metric("MAE", "4.38 min")
+    st.caption("Mean Absolute Error")
+
+# Feature importance
+st.subheader("Top Feature Importance")
+
+feature_importance_data = {
+    'Feature': [
+        'weekend_weather_interaction',
+        'weather_severity',
+        'week_of_year',
+        'month',
+        'avg_delay_same_route_stop_30d'
+    ],
+    'Importance': [27.2, 10.8, 10.7, 8.0, 5.5]
+}
+
+df_importance = pd.DataFrame(feature_importance_data)
+
+fig = px.bar(
+    df_importance,
+    x='Importance',
+    y='Feature',
+    orientation='h',
+    title='Top 5 Most Important Features',
+    color='Importance',
+    color_continuous_scale='Viridis'
+)
+
+st.plotly_chart(fig, use_container_width=True)
