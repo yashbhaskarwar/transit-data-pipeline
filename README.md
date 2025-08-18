@@ -91,7 +91,11 @@ docker-compose build
 docker-compose up airflow-init
 docker-compose up -d
 ```
-Airflow UI: http://localhost:8080
+Airflow UI: http://localhost:8080 <br>
+If there are no users on first run, execute:
+```bash
+docker-compose exec airflow-webserver airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com
+```
 
 2. Load Database Optimization Script
 ```bash
