@@ -78,3 +78,32 @@ Future mode:
 ```bash
 python predict_delays.py --mode future
 ```
+
+## Phase 5 - Automation and Dashboard
+
+This phase adds automation for the ML pipeline using Airflow and a Streamlit dashboard to explore delays, predictions and model performance. It also includes database tuning to keep the pipeline fast.
+
+### how to run
+
+1. Initialize Airflow
+```bash
+docker-compose build
+docker-compose up airflow-init
+docker-compose up -d
+```
+Airflow UI: http://localhost:8080
+
+2. Load Database Optimization Script
+```bash
+psql -U postgres -d transit_delay_optimization -f database/performance_optimization.sql
+```
+
+3. Run the Pipeline
+In Airflow UI, trigger:
+- transit_delay_prediction_daily (runs daily at 2AM)
+- transit_delay_prediction_weekly (runs weekly on Sunday at 3AM)
+
+4. Run the Dashboard
+```bash
+streamlit run streamlit_dashboard.py
+```
