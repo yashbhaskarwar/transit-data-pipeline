@@ -1,113 +1,99 @@
 # Automated Transit Data Pipeline with ML Integration
+This project builds a complete pipeline for transit delay analysis and prediction. 
 
-This project analyzes public transit delay patterns using GTFS data and a PostgreSQL data warehouse.
+## Overview
+This project loads GTFS data into PostgreSQL, generates synthetic delays, builds a warehouse layer, trains a machine learning model, automates workflows using Airflow and visualizes results in a Streamlit dashboard.
 
-## Phase 1: Database Foundation
+## Key features
+1. Data Engineering Pipeline
+- Real GTFS (General Transit Feed Specification) data integration
+- Star schema data warehouse 
+- Comprehensive ETL pipeline with data validation
 
-### How to run
+2. Machine Learning
+- **XGBoost regression model** with 40+ engineered features
+- **88.80% test accuracy** (±10 min prediction window)
+- Feature engineering: temporal, weather, historical, interaction features
 
-1. Create the schema:
+3. Automated Orchestration
+- **Apache Airflow** for pipeline automation
+- Weekly model retraining (Sundays at 3 AM) and Daily predictions (2 AM)
+- Built-in monitoring and alerting framework
+
+4. Performance Optimization
+- Strategic database indexing 
+- Materialized views for dashboard 
+- Database maintenance automation 
+
+5. Interactive Dashboard
+- **Streamlit** web application
+- Route performance comparison
+- Weather impact analysis
+- Hourly pattern visualization
+
+## System Architechture
 ```bash
-psql -U postgres -d transit_delay_optimization -f sql/create_schema.sql
-```
-2. Download available GTFS dataset and place the text files in: data/gtfs/
-
-3. Open sql/load_gtfs_data.sql and update the file paths to match your GTFS dataset location.
-
-4. Load the data:
-```bash
-psql -U postgres -d transit_delay_optimization -f sql/load_gtfs_data.sql
-```
-This loads the raw files, cleans them, fills the operational tables and runs basic checks.
-
-## Phase 2: Synthetic Weather and Delay Data
-
-My GTFS dataset had only scheduled times and didn't had any weather and delay data. So, this phase adds a synthetic generator to create the missing data needed for analysis and ML training.
-
-### How to run
-
-1. Install Python dependencies:
-```bash
-pip install -r requirements.txt
-```
-2. Update database credentials inside generate_synthetic_data.py
-
-3. Execute the script
-```bash
-python generate_synthetic_data.py
-```
-
-## Phase 3 – Data Warehouse Layer (Fact + Dimension Tables)
-
-In this phase, we build the warehouse layer for analytics and future ML work.  
-It creates a star-schema structure, fills it with data and adds a set of analytical SQL queries.
-The warehouse script sets up all dimension tables, fact tables and their relationships, then loads them with data from the operational layer.
-
-### How to run
- 
-1. Run the warehouse schema and population script:
-```bash
-psql -U postgres -d transit_delay_optimization -f sql/fact_dim_tables.sql
-```
-2. (Optional) Run all analytical queries:
-This queries are included to explore the warehouse tables and understand patterns in the data. They are helpful for analysis and model preparation but are not required for the main pipeline to run.
-```bash
-psql -U postgres -d transit_delay_optimization -f sql/analysis_queries.sql
-```
-
-## Phase 4 - feature preprocessing and main execution
-
-This phase builds the full ML pipeline for predicting transit delays. It creates engineered features in SQL, trains an XGBoost model and provides a script to make predictions on test data or future trips.
-
-### How to run
-
-1. Generate ML features
-```bash
-psql -U postgres -d transit_delay_optimization -f sql/06_ml_feature_engineering.sql
-```
-2. Train the model
-```bash
-python train_delay_model.py
-```
-3. Run predictions
-Test mode:
-```bash
-python predict_delays.py --mode test
-```
-Future mode:
-```bash
-python predict_delays.py --mode future
+DATA SOURCES (GTFS, Delays, Weather)
+           ↓
+    POSTGRESQL DATABASE
+    ┌─────────────────┐
+    │ Operational     │ → Raw GTFS + delays
+    │ Warehouse       │ → Star schema (fact + dims)
+    │ ML Schema       │ → Features
+    │ Analytics       │ → Materialized views
+    └─────────────────┘
+           ↓
+     MACHINE LEARNING
+    ┌─────────────────┐
+    │ Feature Eng     │ → 40+ features
+    │ XGBoost Model   │ → Training
+    │ Predictions     │ → Risk levels
+    └─────────────────┘
+            ↓
+    ┌────────────────────┐
+    ↓                    ↓
+   Airflow            Streamlit
+(Automation)       (Visualization)
 ```
 
-## Phase 5 - Automation and Dashboard
-
-This phase adds automation for the ML pipeline using Airflow and a Streamlit dashboard to explore delays, predictions and model performance. It also includes database tuning to keep the pipeline fast.
-
-### how to run
-
-1. Initialize Airflow
+## Project Structure
 ```bash
-docker-compose build
-docker-compose up airflow-init
-docker-compose up -d
-```
-Airflow UI: http://localhost:8080 <br>
-If there are no users on first run, execute:
-```bash
-docker-compose exec airflow-webserver airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com
-```
-
-2. Load Database Optimization Script
-```bash
-psql -U postgres -d transit_delay_optimization -f database/performance_optimization.sql
-```
-
-3. Run the Pipeline
-In Airflow UI, trigger:
-- transit_delay_prediction_daily (runs daily at 2AM)
-- transit_delay_prediction_weekly (runs weekly on Sunday at 3AM)
-
-4. Run the Dashboard
-```bash
-streamlit run streamlit_dashboard.py
+transit-data-pipeline/
+│
+├── sql/
+│   ├── create_schema.sql                # Database schema creation 
+│   ├── load_gtfs_data.sql               # GTFS data import
+│   ├── data_warehouse.sql               # Star schema creation
+│   ├── analysis_queries.sql             # Warehouse ETL
+│   ├── ml_feature_engineering.sql       # ML features
+│   └── performance_optimization.sql     # Database optimization
+│
+├── airflow/
+│   ├── dags/
+│   │   ├── outputs                      # Predicted outputs are stored here (Airflow)
+│   │   ├─── ml_pipeline_dag.py          # Airflow DAG definition
+│   │   └─── predict_delays.py           # Modified for Airflow 
+│   ├── docker-compose.yaml              # Airflow Docker setup
+│   ├── Dockefile
+│   ├── requirements.txt
+│   └── models/                          # Model artifacts
+│       ├── xgboost_delay_model.pkl      # Trained model
+│       ├── scaler.pkl
+│       └── encoders.pkl
+│
+├── generate_synthetic_data.py          # Delay event generation
+├── train_model.py                      # XGBoost training script
+├── predict_delays.py                   # Prediction generation
+├── streamlit_dashboard.py              # Interactive dashboard
+│
+├── models/                             # Trained model artifacts
+│   ├── xgboost_delay_model.pkl         # Final XGBoost model
+│   ├── scaler.pkl                      
+│   └── encoders.pkl                    
+│
+├── outputs/                            # Predicted outputs are stored here (Local setup)
+│
+├── requirements.txt 
+│
+└── README.md                            
 ```
