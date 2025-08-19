@@ -97,3 +97,93 @@ transit-data-pipeline/
 │
 └── README.md                            
 ```
+
+## How to run
+
+### 1. Set Up the Database
+Place GTFS files under: data/gtfs/ <br>
+Create schema and load GTFS:
+```bash
+psql -U postgres -d transit_delay_optimization -f sql/create_schema.sql
+psql -U postgres -d transit_delay_optimization -f sql/load_gtfs_data.sql
+```
+
+### 2. Generate Synthetic Weather & Delay Data
+NOTE: Skip this step if your dataset already includes weather and delay events. <br>
+Install Python requirements:
+```bash
+pip install -r requirements.txt
+```
+Run the generator:
+```bash
+python scripts/generate_synthetic_data.py
+```
+
+### 3. Build Warehouse Tables
+```bash
+psql -U postgres -d transit_delay_optimization -f sql/fact_dim_tables.sql
+```
+(Optional) Run analytical queries:
+```bash
+psql -U postgres -d transit_delay_optimization -f sql/analysis_queries.sql
+```
+This helps understand patterns such as rush hour trends, weather effects and route performance.
+
+### 4. Create ML Features in PostgreSQL
+```bash
+psql -U postgres -d transit_delay_optimization -f sql/06_ml_feature_engineering.sql
+```
+This step builds the ML feature table and train/test views.
+
+### 5. Train the Model
+```bash
+python scripts/train_delay_model.py
+```
+This script trains an XGBoost model, evaluates it and saves all artifacts under models/.
+
+### 6. Run Predictions
+Test predictions:
+```bash
+python scripts/predict_delays.py --mode test
+```
+Future predictions:
+```bash
+python scripts/predict_delays.py --mode future
+```
+
+### 7. Start Airflow Automation (Docker)
+NOTE: I am using Docker Desktop for Airflow, but you can use any setup you’re comfortable with for running Airflow. <br>
+Build and start Airflow:
+```bash
+docker-compose build
+docker-compose up airflow-init
+docker-compose up -d
+```
+If Airflow has no users on first run, run this:
+```bash
+docker-compose exec airflow-webserver airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com
+```
+Airflow UI:
+```bash
+http://localhost:8080
+```
+Daily and weekly pipelines will appear automatically in the UI after placing the DAG under:
+```bash
+airflow/dags/ml_pipeline_dag.py
+```
+
+### 8. Apply Database Optimization
+```bash
+psql -U postgres -d transit_delay_optimization -f database/performance_optimization.sql
+```
+
+### 9. Run the Dashboard
+```bash
+streamlit run streamlit_dashboard.py
+```
+The dashboard shows various features like key delay metrics, daily trends, route comparison, weather impact and model accuracy and feature importance.
+
+## Notes
+- Update database credentials inside Python and SQL files before running.
+- Model Location: Copy trained models to `airflow/models/` directory for pipeline to access
+- Dashboard loads fresh data every time, no caching is used.
