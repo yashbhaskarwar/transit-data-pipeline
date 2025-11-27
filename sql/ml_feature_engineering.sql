@@ -82,6 +82,57 @@ CREATE TABLE ml.delay_features (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Daily predictions
+CREATE TABLE IF NOT EXISTS ml.daily_predictions (
+    prediction_id SERIAL PRIMARY KEY,
+    trip_id VARCHAR(50),
+    stop_id VARCHAR(50),
+    route_id VARCHAR(50),
+    predicted_delay INTEGER,
+    prediction_date DATE,
+    risk_level VARCHAR(20),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+);
+
+CREATE INDEX IF NOT EXISTS idx_predictions_date ON ml.daily_predictions(prediction_date);
+CREATE INDEX IF NOT EXISTS idx_predictions_route ON ml.daily_predictions(route_id);
+CREATE INDEX IF NOT EXISTS idx_predictions_risk ON ml.daily_predictions(risk_level);
+CREATE INDEX IF NOT EXISTS idx_predictions_created ON ml.daily_predictions(created_at);
+
+-- Model metrics
+CREATE TABLE IF NOT EXISTS ml.model_metrics (
+    metric_id SERIAL PRIMARY KEY,
+    model_name VARCHAR(100) DEFAULT 'xgboost_delay_model',
+    model_version VARCHAR(50),
+    
+    -- Training metrics
+    training_accuracy DECIMAL(5,2),
+    training_mae DECIMAL(10,2),
+    training_samples INTEGER,
+    
+    -- Test metrics
+    test_accuracy DECIMAL(5,2),
+    test_mae DECIMAL(10,2),
+    test_samples INTEGER,
+    
+    -- Feature info
+    num_features INTEGER,
+    top_feature VARCHAR(100),
+    top_feature_importance DECIMAL(5,2),
+    
+    -- Metadata
+    trained_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    training_duration_seconds INTEGER,
+    notes TEXT,
+    
+    UNIQUE(model_version)
+);
+
+-- Create index
+CREATE INDEX IF NOT EXISTS idx_metrics_version ON ml.model_metrics(model_version);
+CREATE INDEX IF NOT EXISTS idx_metrics_date ON ml.model_metrics(trained_at);
+
+
 -- BASIC FEATURES
 INSERT INTO ml.delay_features (
     trip_id, stop_id, route_id,
