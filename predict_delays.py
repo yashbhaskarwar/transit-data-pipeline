@@ -6,6 +6,7 @@ from tabulate import tabulate
 from datetime import datetime, timedelta
 import argparse
 import warnings
+from datetime import date
 warnings.filterwarnings('ignore')
 
 # CONFIGURATION
@@ -184,6 +185,9 @@ def predict_test_set(conn, model, scaler, encoders):
     # Save results
     results.to_csv('outputs/test_predictions.csv', index=False)
     print(f"\nFull results saved to outputs/test_predictions.csv")
+
+    # Save to database
+    save_predictions_to_db(results, DB_CONFIG)
     
     return results
 
@@ -365,6 +369,9 @@ def predict_future_delays(conn, model, scaler, encoders, target_date=None):
     os.makedirs('outputs', exist_ok=True)
     results.to_csv(f'outputs/future_predictions_{target_date}.csv', index=False)
     print(f"\n Full results saved to outputs/future_predictions_{target_date}.csv")
+
+    # Save to database
+    save_predictions_to_db(results, DB_CONFIG)
     
     return results
 
@@ -392,6 +399,56 @@ def preprocess_features(X, scaler, encoders):
     X[numerical_cols] = scaler.transform(X[numerical_cols])
     
     return X
+
+def save_predictions_to_db(results_df, db_config):
+    try:
+        # Add prediction_date if missing (for test mode)
+        if 'prediction_date' not in results_df.columns:
+            results_df['prediction_date'] = date.today()
+    
+        # Add risk_level if missing
+        if 'risk_level' not in results_df.columns:
+            results_df['risk_level'] = pd.cut(
+                results_df['predicted_delay'],
+                bins=[-float('inf'), 5, 10, 20, float('inf')],
+                labels=['Low', 'Medium', 'High', 'Severe']
+            )
+
+        conn = psycopg2.connect(
+            host=db_config['host'],
+            port=db_config['port'],
+            database=db_config['database'],
+            user=db_config['user'],
+            password=db_config['password']
+        )
+        cursor = conn.cursor()
+        
+        # Insert predictions
+        inserted = 0
+        for _, row in results_df.iterrows():
+            cursor.execute("""
+                INSERT INTO ml.daily_predictions 
+                (trip_id, stop_id, route_id, predicted_delay, prediction_date, risk_level)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """, (
+                row['trip_id'],
+                row['stop_id'],
+                row['route_id'],
+                int(row['predicted_delay']),
+                row['prediction_date'],
+                row['risk_level']
+            ))
+            inserted += 1
+        
+        conn.commit()
+        print(f" Saved {inserted} predictions to ml.daily_predictions")
+        
+        cursor.close()
+        conn.close()
+        
+    except Exception as e:
+        print(f" Error saving to database: {e}")
+        print(" Predictions are still available in CSV file")
 
 # MAIN EXECUTION
 def main():
@@ -427,7 +484,6 @@ def main():
     
     finally:
         conn.close()
-
 
 if __name__ == "__main__":
     main()
