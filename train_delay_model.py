@@ -12,6 +12,7 @@ from sklearn.metrics import (
 import pickle
 import json
 from datetime import datetime
+import time
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -463,9 +464,76 @@ def save_model_artifacts(model, scaler, encoders, metrics, feature_importance):
     feature_importance.to_csv(MODEL_CONFIG['feature_importance_path'], index=False)
     print(f"Feature importance saved to {MODEL_CONFIG['feature_importance_path']}")
 
+# Save metrics to DB
+def save_metrics_to_db(metrics_dict, db_config):
+    try:
+        conn = psycopg2.connect(
+            host=db_config['host'],
+            port=db_config['port'],
+            database=db_config['database'],
+            user=db_config['user'],
+            password=db_config['password']
+        )
+        cursor = conn.cursor()
+        
+        # Create table if not exists
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ml.model_metrics (
+                metric_id SERIAL PRIMARY KEY,
+                model_name VARCHAR(100) DEFAULT 'xgboost_delay_model',
+                model_version VARCHAR(50),
+                training_accuracy DECIMAL(5,2),
+                training_mae DECIMAL(10,2),
+                training_samples INTEGER,
+                test_accuracy DECIMAL(5,2),
+                test_mae DECIMAL(10,2),
+                test_samples INTEGER,
+                num_features INTEGER,
+                top_feature VARCHAR(100),
+                top_feature_importance DECIMAL(5,2),
+                trained_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                training_duration_seconds INTEGER,
+                notes TEXT
+            )
+        """)
+        
+        # Generate version
+        version = datetime.now().strftime('%Y%m%d_%H%M%S')
+        
+        # Insert metrics
+        cursor.execute("""
+            INSERT INTO ml.model_metrics (
+                model_version, training_accuracy, training_mae, training_samples,
+                test_accuracy, test_mae, test_samples, num_features,
+                top_feature, top_feature_importance, training_duration_seconds, notes
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (
+            version,
+            metrics_dict['training_accuracy'],
+            metrics_dict['training_mae'],
+            metrics_dict['training_samples'],
+            metrics_dict['test_accuracy'],
+            metrics_dict['test_mae'],
+            metrics_dict['test_samples'],
+            metrics_dict['num_features'],
+            metrics_dict['top_feature'],
+            metrics_dict['top_feature_importance'],
+            metrics_dict['training_duration'],
+            metrics_dict.get('notes', 'Automated training run')
+        ))
+        
+        conn.commit()
+        print(f"Metrics saved with version: {version}")
+        
+        cursor.close()
+        conn.close()
+        
+    except Exception as e:
+        print(f"Error saving metrics: {e}")
 
 # MAIN EXECUTION
 def main():
+    start_time = time.time()
     # Connect to database
     conn = get_db_connection()
     
@@ -486,8 +554,31 @@ def main():
         # Feature importance
         feature_importance = analyze_feature_importance(model, X_train.columns.tolist())
         
+        # Calculate training duration
+        training_time = int(time.time() - start_time)
+
+        # Metrics
+        metrics.update({
+            'training_accuracy': metrics.get('accuracy_within_10min', 0) * 100,
+            'training_mae': metrics.get('mae', 0),
+            'training_samples': len(X_train),
+            
+            'test_accuracy': metrics.get('accuracy_within_10min', 0) * 100,
+            'test_mae': metrics.get('mae', 0),
+            'test_samples': len(X_test),
+            
+            # Additional fields
+            'num_features': len(X_train.columns),
+            'top_feature': feature_importance.iloc[0]['feature'] if not feature_importance.empty else 'unknown',
+            'top_feature_importance': float(feature_importance.iloc[0]['importance']) if not feature_importance.empty else 0.0,
+            'training_duration': training_time,
+})
+
         # Save artifacts
         save_model_artifacts(model, scaler, encoders, metrics, feature_importance)
+
+        # Save to DB
+        save_metrics_to_db(metrics, DB_CONFIG)
         
         if MODEL_TYPE == 'regression':
             if metrics['accuracy_within_10min'] >= 0.85:
@@ -504,4 +595,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
