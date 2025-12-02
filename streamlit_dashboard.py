@@ -98,7 +98,26 @@ try:
     avg_delay = avg_result['avg_delay'].iloc[0] if avg_result['avg_delay'].iloc[0] is not None else 0
     
     # Model accuracy 
-    model_accuracy = 88.80  # test accuracy
+    try:
+        metrics_query = """
+            SELECT test_accuracy, test_mae, trained_at
+            FROM ml.model_metrics
+            ORDER BY trained_at DESC
+            LIMIT 1
+        """
+        metrics_df = run_query(metrics_query)
+        if not metrics_df.empty:
+            model_accuracy = metrics_df['test_accuracy'].iloc[0]
+            model_mae = metrics_df['test_mae'].iloc[0]
+            last_trained = metrics_df['trained_at'].iloc[0]
+        else:
+            model_accuracy = 88.80  
+            model_mae = 4.38
+            last_trained = None
+    except:
+        model_accuracy = 88.80 
+        model_mae = 4.38
+        last_trained = None
     
     # High-risk delays
     high_risk_query = f"""
@@ -116,7 +135,7 @@ try:
         st.metric("Avg Delay", f"{avg_delay:.1f} min")
     
     with col3:
-        st.metric("Model Accuracy", f"{model_accuracy:.1f}%", delta="3.13%")
+        st.metric("Model Accuracy", f"{model_accuracy:.1f}%")
     
     with col4:
         st.metric("High-Risk (>20min)", f"{high_risk:,}")
@@ -176,9 +195,6 @@ try:
 except Exception as e:
     st.error(f"Error loading trends: {e}")
 
-# FOOTER
-st.markdown("**Transit Delay Prediction System**")
-
 # ROUTE PERFORMANCE
 col_left, col_right = st.columns(2)
 
@@ -206,7 +222,7 @@ with col_left:
                 df_routes,
                 x='route_id',
                 y='delay_count',
-                title='Delays by Route (Last 7 Days)',
+                title='Delays by Route',
                 labels={'delay_count': 'Number of Delays', 'route_id': 'Route'},
                 color='avg_delay',
                 color_continuous_scale='Reds'
@@ -214,13 +230,13 @@ with col_left:
             st.plotly_chart(fig, use_container_width=True)
             
             # Show data table
-            st.dataframe(
-                df_routes.style.format({
-                    'avg_delay': '{:.1f}',
-                    'max_delay': '{:.0f}'
-                }),
-                use_container_width=True
-            )
+            # st.dataframe(
+            #     df_routes.style.format({
+            #         'avg_delay': '{:.1f}',
+            #         'max_delay': '{:.0f}'
+            #     }),
+            #     use_container_width=True
+            # )
         else:
             st.info("No route data available")
     
@@ -354,3 +370,37 @@ fig = px.bar(
 )
 
 st.plotly_chart(fig, use_container_width=True)
+
+# RECENT PREDICTIONS 
+st.header("Recent Predictions")
+
+try:
+    predictions_query = """
+        SELECT 
+            trip_id,
+            route_id,
+            predicted_delay,
+            prediction_date,
+            risk_level,
+            created_at
+        FROM ml.daily_predictions
+        ORDER BY created_at DESC
+        LIMIT 20
+    """
+    df_predictions = run_query(predictions_query)
+    
+    if not df_predictions.empty:
+        st.dataframe(
+            df_predictions.style.format({
+                'predicted_delay': '{:.0f} min'
+            }),
+            use_container_width=True
+        )
+    else:
+        st.info("No predictions available yet. Run the Airflow DAG to generate predictions.")
+
+except Exception as e:
+    st.info("Predictions table not yet populated. This is normal for first run.")
+
+# FOOTER
+st.markdown("**Transit Delay Prediction System**")
