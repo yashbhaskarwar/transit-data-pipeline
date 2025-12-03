@@ -1,4 +1,4 @@
-# Automated Transit Data Pipeline with ML Integration
+# Automated Transit Data Pipeline with Delay Prediction
 This project builds a complete pipeline for transit delay analysis and prediction. 
 
 ## Overview
